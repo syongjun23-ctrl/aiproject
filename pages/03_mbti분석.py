@@ -153,11 +153,21 @@ div[data-testid="stAlert"] {
 
 
 # ==========================================
-# 3. CSV 데이터 불러오기
+# 3. CSV 파일 경로 설정
 # ==========================================
 
-CSV_PATH = Path(__file__).parent / "countriesMBTI_16types.csv"
+# 현재 파일은 pages 폴더 안에 있음
+# parent.parent를 사용하면 프로젝트 최상위 폴더로 이동
 
+CSV_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "countriesMBTI_16types.csv"
+)
+
+
+# ==========================================
+# 4. CSV 데이터 불러오기
+# ==========================================
 
 @st.cache_data
 def load_data(file_path):
@@ -178,7 +188,8 @@ def load_data(file_path):
 
     if len(mbti_columns) != 16:
         raise ValueError(
-            f"MBTI 유형 열이 16개여야 합니다. 현재 {len(mbti_columns)}개입니다."
+            f"MBTI 유형 열이 16개여야 합니다. "
+            f"현재 {len(mbti_columns)}개입니다."
         )
 
     for col in mbti_columns:
@@ -200,9 +211,9 @@ try:
 except FileNotFoundError:
 
     st.error(
-        "CSV 파일을 찾을 수 없습니다. "
-        "app.py와 같은 폴더에 "
-        "'countriesMBTI_16types.csv' 파일을 넣어주세요."
+        "CSV 파일을 찾을 수 없습니다.\n\n"
+        "프로젝트 최상위 폴더에 "
+        "'countriesMBTI_16types.csv' 파일이 있는지 확인해 주세요."
     )
 
     st.stop()
@@ -215,7 +226,7 @@ except Exception as error:
 
 
 # ==========================================
-# 4. 메인 화면
+# 5. 메인 화면
 # ==========================================
 
 st.markdown("""
@@ -240,7 +251,7 @@ st.markdown("""
 
 
 # ==========================================
-# 5. 국가 선택
+# 6. 국가 선택
 # ==========================================
 
 st.markdown(
@@ -261,10 +272,11 @@ countries = sorted(
 
 preferred = "South Korea"
 
-if preferred in countries:
-    default_index = countries.index(preferred)
-else:
-    default_index = 0
+default_index = (
+    countries.index(preferred)
+    if preferred in countries
+    else 0
+)
 
 left, right = st.columns([2, 1])
 
@@ -297,7 +309,7 @@ with right:
 
 
 # ==========================================
-# 6. 선택한 국가의 MBTI 비율 계산
+# 7. 선택 국가의 MBTI 비율 계산
 # ==========================================
 
 country_row = df.loc[
@@ -322,7 +334,7 @@ chart_data = chart_data.sort_values(
     ascending=False
 ).reset_index(drop=True)
 
-# 1위 유형
+# 가장 높은 비율의 MBTI
 winner = chart_data.iloc[0]
 
 winner_type = winner["MBTI"]
@@ -330,7 +342,7 @@ winner_rate = winner["비율"]
 
 
 # ==========================================
-# 7. 그라데이션 색상 함수
+# 8. 그라데이션 색상 함수
 # ==========================================
 
 def hex_to_rgb(hex_color):
@@ -386,7 +398,7 @@ for i in range(1, len(chart_data)):
 
 
 # ==========================================
-# 8. 결과 요약 카드
+# 9. 결과 요약 카드
 # ==========================================
 
 st.markdown(
@@ -462,7 +474,7 @@ with col3:
 
 
 # ==========================================
-# 9. 막대그래프 생성
+# 10. 막대그래프 생성
 # ==========================================
 
 fig = go.Figure()
@@ -574,7 +586,7 @@ st.plotly_chart(
 
 
 # ==========================================
-# 10. 정확한 수치 확인
+# 11. 정확한 수치 확인
 # ==========================================
 
 with st.expander("📋 정확한 수치 확인하기"):
@@ -593,7 +605,7 @@ with st.expander("📋 정확한 수치 확인하기"):
 
 
 # ==========================================
-# 11. 안내 문구
+# 12. 안내 문구
 # ==========================================
 
 st.caption(
@@ -609,7 +621,7 @@ st.info(
 
 
 # ==========================================
-# 12. 하단
+# 13. 하단
 # ==========================================
 
 st.markdown("""
