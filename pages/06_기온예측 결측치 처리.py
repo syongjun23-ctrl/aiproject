@@ -7,13 +7,13 @@ import plotly.graph_objects as go
 from pathlib import Path
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import make_pipeline
 from sklearn.ensemble import RandomForestRegressor
 
 
-# ==========================================
+# ==================================================
 # 1. 페이지 설정
-# ==========================================
+# ==================================================
 
 st.set_page_config(
     page_title="서울 기온 분석 & AI 예측",
@@ -22,9 +22,9 @@ st.set_page_config(
 )
 
 
-# ==========================================
+# ==================================================
 # 2. 디자인
-# ==========================================
+# ==================================================
 
 st.markdown("""
 <style>
@@ -86,9 +86,9 @@ div[data-testid="stMetricValue"] {
 """, unsafe_allow_html=True)
 
 
-# ==========================================
-# 3. CSV 불러오기
-# ==========================================
+# ==================================================
+# 3. 데이터 불러오기
+# ==================================================
 
 @st.cache_data
 def load_data():
@@ -108,7 +108,8 @@ def load_data():
 
     if file_path is None:
         raise FileNotFoundError(
-            "CSV 파일을 프로젝트 최상위 폴더에 넣어주세요."
+            "CSV 파일을 찾을 수 없습니다. "
+            "프로젝트 최상위 폴더에 temperature_utf8.csv를 넣어주세요."
         )
 
     df = None
@@ -116,37 +117,37 @@ def load_data():
     for encoding in ["utf-8-sig", "utf-8", "cp949", "euc-kr"]:
 
         try:
-            df = pd.read_csv(
-                file_path,
-                encoding=encoding
-            )
+            df = pd.read_csv(file_path, encoding=encoding)
             break
 
         except UnicodeDecodeError:
             continue
 
     if df is None:
-        raise ValueError("CSV 인코딩을 확인해주세요.")
+        raise ValueError("CSV 파일의 인코딩을 확인해주세요.")
 
-    required = ["일시", "평균기온(℃)"]
+    required_columns = ["일시", "평균기온(℃)"]
 
-    for col in required:
+    for col in required_columns:
         if col not in df.columns:
             raise ValueError(
-                f"CSV에 {col} 열이 없습니다."
+                f"'{col}' 열이 없습니다. 현재 열: {list(df.columns)}"
             )
 
+    # 날짜 처리
     df["일시"] = pd.to_datetime(
-        df["일시"],
+        df["일시"].astype(str).str.strip(),
         errors="coerce"
     )
 
+    # 기온 처리
     df["평균기온(℃)"] = pd.to_numeric(
-        df["평균기온(℃)"].astype(str).str.replace(",", ""),
+        df["평균기온(℃)"].astype(str).str.replace(",", "", regex=False),
         errors="coerce"
     )
 
-    df = df.dropna(subset=["일시"])
+    # 날짜가 잘못된 행만 제거
+    df = df.dropna(subset=["일시"]).copy()
 
     df["연도"] = df["일시"].dt.year
     df["월"] = df["일시"].dt.month
@@ -154,7 +155,7 @@ def load_data():
     df = df[
         (df["연도"] >= 1907) &
         (df["연도"] <= 2025)
-    ]
+    ].copy()
 
     return df
 
@@ -163,13 +164,13 @@ try:
     df = load_data()
 
 except Exception as e:
-    st.error(f"데이터 오류: {e}")
+    st.error(f"데이터 불러오기 오류: {e}")
     st.stop()
 
 
-# ==========================================
+# ==================================================
 # 4. 제목
-# ==========================================
+# ==================================================
 
 st.markdown(
     '<div class="main-title">🌡️ SEOUL CLIMATE LAB</div>',
@@ -178,21 +179,21 @@ st.markdown(
 
 st.markdown(
     '<div class="sub-title">'
-    '1907~2025 서울 기온 분석 · 결측치 처리 · 미래 예측'
+    '1907~2025 서울 기온 분석 · 결측치 처리 · AI 미래 예측'
     '</div>',
     unsafe_allow_html=True
 )
 
 
-# ==========================================
+# ==================================================
 # 5. 기본 통계
-# ==========================================
+# ==================================================
 
 c1, c2, c3 = st.columns(3)
 
 c1.metric("📅 분석 기간", "1907~2025")
 
-c2.metric("📊 원본 데이터", f"{len(df):,}개")
+c2.metric("📊 전체 관측 행", f"{len(df):,}개")
 
 c3.metric(
     "🌡️ 전체 평균기온",
@@ -200,9 +201,9 @@ c3.metric(
 )
 
 
-# ==========================================
+# ==================================================
 # 6. 월 선택
-# ==========================================
+# ==================================================
 
 st.markdown(
     '<div class="section-title">📈 01. 월별 기온 분석</div>',
@@ -216,18 +217,17 @@ months = [
 ]
 
 selected_month_name = st.selectbox(
-    "분석할 월",
-    months
+    "분석할 월을 선택하세요.",
+    months,
+    index=0
 )
 
-selected_month = months.index(
-    selected_month_name
-) + 1
+selected_month = months.index(selected_month_name) + 1
 
 
-# ==========================================
+# ==================================================
 # 7. 월별 평균기온 계산
-# ==========================================
+# ==================================================
 
 monthly = (
     df[df["월"] == selected_month]
@@ -235,32 +235,34 @@ monthly = (
     .mean()
 )
 
-# 1907~2025년 전체 연도 생성
+# 1907~2025 전체 연도를 먼저 생성
 all_years = pd.Index(
     range(1907, 2026),
     name="연도"
 )
 
-original_series = monthly.reindex(all_years)
+# 관측되지 않은 연도는 NaN으로 유지
+original_series = monthly.reindex(all_years).astype(float)
 
-missing_count = int(
-    original_series.isna().sum()
+# 무한대 값도 결측치로 처리
+original_series = original_series.replace(
+    [np.inf, -np.inf],
+    np.nan
 )
 
-observed_count = int(
-    original_series.notna().sum()
-)
+missing_count = int(original_series.isna().sum())
+observed_count = int(original_series.notna().sum())
 
 if observed_count < 5:
-    st.error("선택한 월의 관측 데이터가 너무 적습니다.")
+    st.error("선택한 월의 유효한 관측 데이터가 5개 미만입니다.")
     st.stop()
 
 
-# ==========================================
+# ==================================================
 # 8. 실제 관측 그래프
-# ==========================================
+# ==================================================
 
-st.markdown("### 실제 관측 기온")
+st.markdown("### 🌡️ 실제 관측 평균기온")
 
 fig1 = go.Figure()
 
@@ -269,33 +271,36 @@ fig1.add_trace(
         x=original_series.dropna().index,
         y=original_series.dropna().values,
         mode="lines+markers",
-        name="실제 평균기온",
-        line=dict(color="#ff65b5", width=2),
-        marker=dict(size=4)
+        name="실제 관측 기온",
+        line=dict(color="#ff65b5", width=2.5),
+        marker=dict(size=5),
+        connectgaps=False
     )
 )
 
 fig1.update_layout(
     template="plotly_dark",
-    height=400,
+    height=420,
     xaxis_title="연도",
     yaxis_title="평균기온 (℃)",
-    xaxis=dict(dtick=10, gridcolor="#34445e"),
-    yaxis=dict(gridcolor="#34445e"),
+    hovermode="x unified",
     plot_bgcolor="#17243a",
     paper_bgcolor="#17243a",
-    hovermode="x unified"
+    xaxis=dict(
+        dtick=10,
+        gridcolor="#34445e"
+    ),
+    yaxis=dict(
+        gridcolor="#34445e"
+    )
 )
 
-st.plotly_chart(
-    fig1,
-    use_container_width=True
-)
+st.plotly_chart(fig1, use_container_width=True)
 
 
-# ==========================================
-# 9. 결측치 처리 방식 선택
-# ==========================================
+# ==================================================
+# 9. 결측치 처리
+# ==================================================
 
 st.markdown("---")
 
@@ -305,30 +310,33 @@ st.markdown(
 )
 
 st.write(
-    "데이터가 비어 있는 연도를 어떤 방법으로 처리할지 선택하세요."
+    "관측값이 비어 있는 연도를 어떤 방식으로 처리할지 선택하세요."
 )
 
-missing_method = st.radio(
+method_labels = {
+    "1. 결측치 제거": "제거",
+    "2. 중앙값으로 대체": "중앙값 대체",
+    "3. 선형보간법": "선형보간"
+}
+
+selected_method = st.radio(
     "결측치 처리 방법",
-    [
-        "1. 결측치 제거",
-        "2. 중앙값으로 대체",
-        "3. 선형보간법"
-    ],
+    list(method_labels.keys()),
     horizontal=True
 )
 
 
-# ==========================================
+# ==================================================
 # 10. 결측치 처리 함수
-# ==========================================
+# ==================================================
 
 def process_missing(series, method):
 
-    result = series.copy()
+    result = series.copy().astype(float)
 
     if method == "1. 결측치 제거":
 
+        # 실제 관측값만 사용
         result = result.dropna()
 
     elif method == "2. 중앙값으로 대체":
@@ -344,24 +352,31 @@ def process_missing(series, method):
             limit_direction="both"
         )
 
+    result = result.replace(
+        [np.inf, -np.inf],
+        np.nan
+    ).dropna()
+
     return result.astype(float)
 
 
 processed_series = process_missing(
     original_series,
-    missing_method
+    selected_method
 )
 
+if len(processed_series) < 5:
+    st.error("결측치 처리 후 학습 가능한 데이터가 부족합니다.")
+    st.stop()
 
-# ==========================================
-# 11. 결측치 처리 통계
-# ==========================================
 
-filled_count = int(
-    processed_series.notna().sum() - observed_count
-)
+# ==================================================
+# 11. 결측치 통계
+# ==================================================
 
-m1, m2, m3 = st.columns(3)
+imputed_count = len(processed_series) - observed_count
+
+m1, m2, m3, m4 = st.columns(4)
 
 m1.metric(
     "전체 연도",
@@ -374,51 +389,67 @@ m2.metric(
 )
 
 m3.metric(
-    "처리된 데이터",
-    f"{len(processed_series)}개"
+    "실제 관측 연도",
+    f"{observed_count}년"
 )
 
+m4.metric(
+    "대체된 연도",
+    f"{imputed_count}년"
+)
 
 if missing_count == 0:
+
     st.info(
-        "선택한 월에는 결측 연도가 없습니다. "
-        "처리 방법을 바꿔도 결과가 동일할 수 있습니다."
+        "현재 선택한 월에는 결측 연도가 없습니다. "
+        "따라서 결측치 처리 방법에 따른 예측 차이가 없을 수 있습니다."
+    )
+
+elif selected_method == "1. 결측치 제거":
+
+    st.warning(
+        f"{missing_count}개의 결측 연도를 학습에서 제외했습니다."
+    )
+
+else:
+
+    st.success(
+        f"{missing_count}개의 결측 연도를 선택한 방법으로 대체했습니다."
     )
 
 
-# ==========================================
-# 12. 결측치 처리 전후 비교 그래프
-# ==========================================
+# ==================================================
+# 12. 결측치 처리 전후 비교
+# ==================================================
 
-st.markdown("### 결측치 처리 전후 비교")
+st.markdown("### 📊 결측치 처리 전후 비교")
 
 fig2 = go.Figure()
 
-# 원본 관측값
 fig2.add_trace(
     go.Scatter(
         x=original_series.dropna().index,
         y=original_series.dropna().values,
         mode="markers",
-        name="원본 관측값",
+        name="실제 관측값",
         marker=dict(
             color="white",
-            size=6
+            size=7
         )
     )
 )
 
-# 처리된 전체 값
 fig2.add_trace(
     go.Scatter(
         x=processed_series.index,
         y=processed_series.values,
-        mode="lines",
-        name="결측치 처리 결과",
+        mode="lines+markers",
+        name="처리된 데이터",
         line=dict(
             color="#55d6ff",
-            width=2.5
-        )
+            width=2
+        ),
+        marker=dict(size=3)
     )
 )
 
@@ -427,27 +458,23 @@ fig2.update_layout(
     height=400,
     xaxis_title="연도",
     yaxis_title="평균기온 (℃)",
+    hovermode="x unified",
     xaxis=dict(dtick=10, gridcolor="#34445e"),
     yaxis=dict(gridcolor="#34445e"),
     plot_bgcolor="#17243a",
-    paper_bgcolor="#17243a",
-    hovermode="x unified"
+    paper_bgcolor="#17243a"
 )
 
-st.plotly_chart(
-    fig2,
-    use_container_width=True
-)
+st.plotly_chart(fig2, use_container_width=True)
 
 st.caption(
-    "흰색 점은 실제 관측값, 하늘색 선은 선택한 방법으로 "
-    "결측치를 처리한 결과입니다."
+    "흰색 점은 원본 관측값이며, 하늘색 선은 결측치 처리 후 학습에 사용하는 데이터입니다."
 )
 
 
-# ==========================================
-# 13. 알고리즘 선택
-# ==========================================
+# ==================================================
+# 13. 예측 알고리즘 선택
+# ==================================================
 
 st.markdown("---")
 
@@ -463,22 +490,22 @@ algorithm_names = [
 ]
 
 selected_algorithms = st.multiselect(
-    "비교할 알고리즘을 선택하세요.",
+    "비교할 알고리즘을 선택하세요. 여러 개 선택할 수 있습니다.",
     algorithm_names,
     default=algorithm_names
 )
 
-if not selected_algorithms:
+if len(selected_algorithms) == 0:
     st.warning("최소 하나의 알고리즘을 선택해주세요.")
     st.stop()
 
 
-# ==========================================
+# ==================================================
 # 14. 예측 연도
-# ==========================================
+# ==================================================
 
 target_year = st.number_input(
-    "예측하고 싶은 연도",
+    "🔮 예측하고 싶은 연도",
     min_value=2026,
     max_value=2100,
     value=2050,
@@ -486,9 +513,9 @@ target_year = st.number_input(
 )
 
 
-# ==========================================
-# 15. 모델 생성 함수
-# ==========================================
+# ==================================================
+# 15. 알고리즘 생성
+# ==================================================
 
 def create_model(name):
 
@@ -498,16 +525,10 @@ def create_model(name):
 
     elif name == "다항 회귀":
 
-        return Pipeline([
-            (
-                "poly",
-                PolynomialFeatures(degree=2)
-            ),
-            (
-                "linear",
-                LinearRegression()
-            )
-        ])
+        return make_pipeline(
+            PolynomialFeatures(degree=2),
+            LinearRegression()
+        )
 
     elif name == "랜덤 포레스트":
 
@@ -515,61 +536,116 @@ def create_model(name):
             n_estimators=300,
             max_depth=5,
             min_samples_leaf=3,
-            random_state=42
+            random_state=42,
+            n_jobs=-1
         )
 
 
-colors = {
+algorithm_colors = {
     "선형 회귀": "#ff6464",
     "다항 회귀": "#55d6ff",
     "랜덤 포레스트": "#b58aff"
 }
 
+method_dash = {
+    "1. 결측치 제거": "solid",
+    "2. 중앙값으로 대체": "dash",
+    "3. 선형보간법": "dot"
+}
 
-# ==========================================
-# 16. 선택한 결측치 처리 방식으로 예측
-# ==========================================
 
-X = processed_series.index.to_numpy().reshape(-1, 1)
-y = processed_series.to_numpy()
+# ==================================================
+# 16. 모델 학습 및 예측 공통 함수
+# ==================================================
 
-future_years = np.arange(
-    2026,
-    int(target_year) + 1
-).reshape(-1, 1)
+def train_and_predict(series, algorithm, target):
 
-if len(X) < 5:
-    st.error("학습할 데이터가 부족합니다.")
-    st.stop()
+    # 데이터 검사
+    series = series.dropna().astype(float)
 
+    if len(series) < 5:
+        raise ValueError("학습 데이터가 부족합니다.")
+
+    if not np.isfinite(series.values).all():
+        raise ValueError("학습 데이터에 유효하지 않은 값이 있습니다.")
+
+    # 연도를 기준 연도에서 빼서 수치 안정성 확보
+    years = series.index.to_numpy(dtype=float)
+
+    X = (years - 1907).reshape(-1, 1)
+    y = series.to_numpy(dtype=float)
+
+    # 미래 연도
+    future_years = np.arange(
+        2026,
+        int(target) + 1
+    )
+
+    future_X = (future_years - 1907).reshape(-1, 1)
+
+    # 모델 생성
+    model = create_model(algorithm)
+
+    # 학습
+    model.fit(X, y)
+
+    # 미래 예측
+    predictions = model.predict(future_X)
+
+    # 마지막 학습 연도의 예측값
+    last_year = int(years[-1])
+
+    last_X = np.array([
+        [last_year - 1907]
+    ])
+
+    last_prediction = float(
+        model.predict(last_X)[0]
+    )
+
+    # 목표 연도 예측값
+    target_prediction = float(predictions[-1])
+
+    if not np.isfinite(target_prediction):
+        raise ValueError("예측 결과가 유효하지 않습니다.")
+
+    return {
+        "model": model,
+        "future_years": future_years,
+        "predictions": predictions,
+        "last_year": last_year,
+        "last_prediction": last_prediction,
+        "target_prediction": target_prediction
+    }
+
+
+# ==================================================
+# 17. 선택한 처리 방식으로 예측
+# ==================================================
 
 st.markdown("---")
 
 st.markdown(
-    '<div class="section-title">🔮 04. 미래 기온 예측</div>',
+    '<div class="section-title">🔮 04. 선택한 조건으로 미래 예측</div>',
     unsafe_allow_html=True
 )
 
-st.markdown(
-    f"**현재 결측치 처리:** {missing_method}  |  "
-    f"**예측 연도:** {target_year}년"
+st.write(
+    f"결측치 처리: **{selected_method}**  |  "
+    f"예측 대상: **{target_year}년 {selected_month}월**"
 )
-
-
-# ==========================================
-# 17. 선택한 알고리즘 예측 그래프
-# ==========================================
 
 fig3 = go.Figure()
 
-# 실제 관측값
+# 실제 관측 데이터
 fig3.add_trace(
     go.Scatter(
         x=original_series.dropna().index,
         y=original_series.dropna().values,
         mode="lines+markers",
         name="실제 관측값",
-        line=dict(color="white", width=2)
+        line=dict(color="white", width=2.5),
+        marker=dict(size=4)
     )
 )
 
@@ -578,79 +654,104 @@ fig3.add_trace(
     go.Scatter(
         x=processed_series.index,
         y=processed_series.values,
-        mode="lines",
-        name="결측치 처리 데이터",
-        line=dict(color="#8b9bb4", width=1.5, dash="dot")
+        mode="markers",
+        name="학습용 처리 데이터",
+        marker=dict(
+            color="#8b9bb4",
+            size=5,
+            symbol="circle-open"
+        )
     )
 )
 
 prediction_results = []
+main_results = {}
 
 for name in selected_algorithms:
 
-    model = create_model(name)
+    try:
 
-    model.fit(X, y)
+        result = train_and_predict(
+            processed_series,
+            name,
+            target_year
+        )
 
-    # 과거 학습 결과
-    historical = model.predict(X)
+        main_results[name] = result
 
-    fig3.add_trace(
-        go.Scatter(
-            x=processed_series.index,
-            y=historical,
-            mode="lines",
-            name=f"{name} 학습 결과",
-            line=dict(
-                color=colors[name],
-                width=1.5,
-                dash="dot"
+        # 학습 구간
+        historical_years = processed_series.index.to_numpy()
+        historical_X = (
+            historical_years - 1907
+        ).reshape(-1, 1)
+
+        historical_predictions = result["model"].predict(
+            historical_X
+        )
+
+        fig3.add_trace(
+            go.Scatter(
+                x=historical_years,
+                y=historical_predictions,
+                mode="lines",
+                name=f"{name} 학습 곡선",
+                line=dict(
+                    color=algorithm_colors[name],
+                    width=1.5,
+                    dash="dot"
+                ),
+                opacity=0.65
             )
         )
-    )
 
-    # 미래 예측
-    future_prediction = model.predict(future_years)
+        # 미래 예측선
+        forecast_x = np.concatenate([
+            [result["last_year"]],
+            result["future_years"]
+        ])
 
-    forecast_x = np.concatenate([
-        [2025],
-        future_years.flatten()
-    ])
+        forecast_y = np.concatenate([
+            [result["last_prediction"]],
+            result["predictions"]
+        ])
 
-    forecast_y = np.concatenate([
-        [float(processed_series.loc[2025])],
-        future_prediction
-    ])
-
-    fig3.add_trace(
-        go.Scatter(
-            x=forecast_x,
-            y=forecast_y,
-            mode="lines",
-            name=f"{name} 미래 예측",
-            line=dict(
-                color=colors[name],
-                width=3
+        fig3.add_trace(
+            go.Scatter(
+                x=forecast_x,
+                y=forecast_y,
+                mode="lines",
+                name=f"{name} 미래 예측",
+                line=dict(
+                    color=algorithm_colors[name],
+                    width=3
+                ),
+                hovertemplate="%{x}년<br>%{y:.2f}℃<extra></extra>"
             )
         )
-    )
 
-    final_value = model.predict(
-        np.array([[int(target_year)]])
-    )[0]
+        prediction_results.append({
+            "알고리즘": name,
+            "예측 연도": f"{target_year}년",
+            "예측 평균기온(℃)": round(
+                result["target_prediction"], 2
+            )
+        })
 
-    prediction_results.append({
-        "알고리즘": name,
-        "예측 연도": f"{target_year}년",
-        "예측 평균기온(℃)": round(float(final_value), 2)
-    })
+    except Exception as e:
+
+        st.error(f"{name} 학습 오류: {e}")
+
+
+if not prediction_results:
+    st.error("예측에 성공한 알고리즘이 없습니다.")
+    st.stop()
 
 
 fig3.add_vline(
     x=2025,
     line_dash="dash",
     line_color="white",
-    annotation_text="미래 예측 시작"
+    annotation_text="2025년 / 예측 구간"
 )
 
 fig3.update_layout(
@@ -658,16 +759,11 @@ fig3.update_layout(
     height=550,
     xaxis_title="연도",
     yaxis_title="평균기온 (℃)",
-    xaxis=dict(
-        dtick=10,
-        gridcolor="#34445e"
-    ),
-    yaxis=dict(
-        gridcolor="#34445e"
-    ),
+    hovermode="x unified",
     plot_bgcolor="#17243a",
     paper_bgcolor="#17243a",
-    hovermode="x unified",
+    xaxis=dict(dtick=10, gridcolor="#34445e"),
+    yaxis=dict(gridcolor="#34445e"),
     legend=dict(
         orientation="h",
         y=-0.25
@@ -675,26 +771,20 @@ fig3.update_layout(
     margin=dict(b=100)
 )
 
-st.plotly_chart(
-    fig3,
-    use_container_width=True
-)
+st.plotly_chart(fig3, use_container_width=True)
 
 
-# ==========================================
-# 18. 최종 예측 결과
-# ==========================================
+# ==================================================
+# 18. 선택한 조건의 최종 예측값
+# ==================================================
 
-st.markdown("### 🎯 선택한 방법의 최종 예측값")
+st.markdown("### 🎯 최종 예측 결과")
 
 result_df = pd.DataFrame(prediction_results)
 
-cols = st.columns(len(prediction_results))
+result_columns = st.columns(len(prediction_results))
 
-for col, row in zip(
-    cols,
-    prediction_results
-):
+for col, row in zip(result_columns, prediction_results):
 
     with col:
 
@@ -710,20 +800,20 @@ st.dataframe(
 )
 
 
-# ==========================================
-# 19. 결측치 처리 방법별 예측 비교
-# ==========================================
+# ==================================================
+# 19. 모든 결측치 처리 방식 비교
+# ==================================================
 
 st.markdown("---")
 
 st.markdown(
-    '<div class="section-title">🔬 05. 결측치 처리 방법에 따른 예측 차이</div>',
+    '<div class="section-title">🔬 05. 결측치 처리 방식별 예측 비교</div>',
     unsafe_allow_html=True
 )
 
 st.write(
-    "동일한 알고리즘을 사용하더라도 결측치를 처리하는 방식에 "
-    "따라 예측 결과가 어떻게 달라지는지 비교합니다."
+    "현재 선택한 알고리즘을 유지한 상태에서 "
+    "결측치 처리 방법만 바꾸어 결과를 비교합니다."
 )
 
 all_methods = [
@@ -732,11 +822,11 @@ all_methods = [
     "3. 선형보간법"
 ]
 
-comparison_rows = []
+comparison_results = []
 
 fig4 = go.Figure()
 
-# 각 처리 방법과 선택한 알고리즘 조합 비교
+# 알고리즘별 / 결측치 처리 방식별 예측
 for method in all_methods:
 
     method_series = process_missing(
@@ -744,55 +834,69 @@ for method in all_methods:
         method
     )
 
-    method_X = method_series.index.to_numpy().reshape(-1, 1)
-    method_y = method_series.to_numpy()
+    if len(method_series) < 5:
+        continue
 
     for name in selected_algorithms:
 
-        model = create_model(name)
+        try:
 
-        model.fit(method_X, method_y)
-
-        predicted = float(
-            model.predict(
-                np.array([[int(target_year)]])
-            )[0]
-        )
-
-        comparison_rows.append({
-            "결측치 처리": method,
-            "알고리즘": name,
-            "예측 평균기온(℃)": round(predicted, 2)
-        })
-
-        fig4.add_trace(
-            go.Scatter(
-                x=[method],
-                y=[predicted],
-                mode="markers+text",
-                name=f"{method} - {name}",
-                text=[f"{predicted:.2f}℃"],
-                textposition="top center",
-                marker=dict(
-                    size=13,
-                    color=colors[name]
-                ),
-                legendgroup=name
+            result = train_and_predict(
+                method_series,
+                name,
+                target_year
             )
-        )
 
+            future_years = result["future_years"]
+            predictions = result["predictions"]
 
-comparison_df = pd.DataFrame(comparison_rows)
+            # 그래프 범례용 이름
+            trace_name = f"{name} / {method}"
+
+            fig4.add_trace(
+                go.Scatter(
+                    x=future_years,
+                    y=predictions,
+                    mode="lines",
+                    name=trace_name,
+                    line=dict(
+                        color=algorithm_colors[name],
+                        width=2.5,
+                        dash=method_dash[method]
+                    ),
+                    hovertemplate=(
+                        "%{x}년<br>"
+                        "%{y:.2f}℃"
+                        "<extra>" + trace_name + "</extra>"
+                    )
+                )
+            )
+
+            comparison_results.append({
+                "결측치 처리": method,
+                "알고리즘": name,
+                "예측 평균기온(℃)": round(
+                    result["target_prediction"], 2
+                )
+            })
+
+        except Exception as e:
+
+            st.warning(
+                f"{method} / {name} 비교 중 오류: {e}"
+            )
+
 
 fig4.update_layout(
     template="plotly_dark",
-    height=500,
-    xaxis_title="결측치 처리 방식",
-    yaxis_title=f"{target_year}년 예측 평균기온 (℃)",
+    height=550,
+    xaxis_title="예측 연도",
+    yaxis_title="예측 평균기온 (℃)",
+    hovermode="x unified",
     plot_bgcolor="#17243a",
     paper_bgcolor="#17243a",
-    hovermode="closest",
     xaxis=dict(
+        dtick=5,
         gridcolor="#34445e"
     ),
     yaxis=dict(
@@ -802,26 +906,54 @@ fig4.update_layout(
         orientation="h",
         y=-0.3
     ),
-    margin=dict(b=110)
+    margin=dict(b=130)
 )
 
-st.plotly_chart(
-    fig4,
-    use_container_width=True
-)
-
-st.markdown("### 📋 결측치 처리별 예측 결과표")
-
-st.dataframe(
-    comparison_df,
-    use_container_width=True,
-    hide_index=True
-)
+st.plotly_chart(fig4, use_container_width=True)
 
 
-# ==========================================
-# 20. 알고리즘 설명
-# ==========================================
+# ==================================================
+# 20. 9가지 조합의 최종값 비교
+# ==================================================
+
+st.markdown("### 📋 결측치 처리 × 알고리즘 결과표")
+
+comparison_df = pd.DataFrame(comparison_results)
+
+if not comparison_df.empty:
+
+    st.dataframe(
+        comparison_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # 처리 방식별 예측값 차이
+    pivot_df = comparison_df.pivot(
+        index="결측치 처리",
+        columns="알고리즘",
+        values="예측 평균기온(℃)"
+    )
+
+    st.markdown("### 📊 목표 연도 예측값 비교")
+
+    st.dataframe(
+        pivot_df,
+        use_container_width=True
+    )
+
+    st.caption(
+        f"위 결과는 {target_year}년 {selected_month}월의 예측값입니다."
+    )
+
+else:
+
+    st.warning("비교 가능한 예측 결과가 없습니다.")
+
+
+# ==================================================
+# 21. 알고리즘 설명
+# ==================================================
 
 st.markdown("---")
 
@@ -837,17 +969,20 @@ with col1:
     st.markdown("""
     <div class="info-card">
     <h3 style="color:#ff6464;">🔴 선형 회귀</h3>
-    과거 기온의 전체적인 추세를 직선으로 학습합니다.
+
+    과거 기온의 전체적인 증가 또는 감소 추세를
+    직선으로 학습합니다.
 
     <hr>
 
-    <b>작동 방식</b>
+    <b>작동 원리</b>
 
-    데이터에 가장 잘 맞는 직선을 찾아 미래까지 연장합니다.
+    데이터와 가장 잘 맞는 직선을 찾아
+    미래까지 연장합니다.
 
-    <b>특징</b>
+    <b>그래프 특징</b>
 
-    단순하고 전체적인 증가 및 감소 추세를 파악하기 쉽습니다.
+    일정한 기울기를 가진 직선 형태입니다.
     </div>
     """, unsafe_allow_html=True)
 
@@ -856,17 +991,18 @@ with col2:
     st.markdown("""
     <div class="info-card">
     <h3 style="color:#55d6ff;">🔵 다항 회귀</h3>
+
     과거 기온의 곡선 형태를 학습합니다.
 
     <hr>
 
-    <b>작동 방식</b>
+    <b>작동 원리</b>
 
-    2차 방정식으로 휘어지는 추세선을 만듭니다.
+    2차 방정식으로 변화하는 추세를 표현합니다.
 
-    <b>특징</b>
+    <b>그래프 특징</b>
 
-    기온 변화의 가속 및 감속 추세를 표현할 수 있습니다.
+    상승 또는 하락 속도가 변하는 곡선입니다.
     </div>
     """, unsafe_allow_html=True)
 
@@ -875,87 +1011,106 @@ with col3:
     st.markdown("""
     <div class="info-card">
     <h3 style="color:#b58aff;">🟣 랜덤 포레스트</h3>
-    여러 개의 의사결정나무를 활용합니다.
+
+    여러 개의 의사결정나무를 이용합니다.
 
     <hr>
 
-    <b>작동 방식</b>
+    <b>작동 원리</b>
 
-    여러 나무의 예측값을 평균 내어 결과를 계산합니다.
+    여러 나무가 예측한 결과를 평균 내어 계산합니다.
 
-    <b>특징</b>
+    <b>그래프 특징</b>
 
-    복잡한 데이터 패턴을 학습할 수 있지만 장기 외삽에는 한계가 있습니다.
+    학습 범위 밖에서는 예측값이 평평해지는 경향이 있습니다.
     </div>
     """, unsafe_allow_html=True)
 
 
-# ==========================================
-# 21. 결측치 처리 설명
-# ==========================================
+# ==================================================
+# 22. 결측치 처리 방법 설명
+# ==================================================
 
 st.markdown(
-    '<div class="section-title">🧩 결측치 처리 방법의 차이</div>',
+    '<div class="section-title">🧩 07. 결측치 처리 방법</div>',
     unsafe_allow_html=True
 )
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
+
     st.markdown("""
     <div class="info-card">
     <h3>1️⃣ 결측치 제거</h3>
-    비어 있는 연도 데이터를 학습에서 제외합니다.
+
+    비어 있는 연도를 학습에서 제외합니다.
+
+    <hr>
 
     <b>장점</b>
-    <p>실제로 관측된 값만 사용합니다.</p>
+
+    실제 관측값만 학습합니다.
 
     <b>단점</b>
-    <p>학습 데이터가 줄어듭니다.</p>
+
+    학습 데이터가 감소합니다.
     </div>
     """, unsafe_allow_html=True)
 
 with col2:
+
     st.markdown("""
     <div class="info-card">
     <h3>2️⃣ 중앙값 대체</h3>
-    전체 관측값의 중앙값으로 빈 데이터를 채웁니다.
+
+    관측값의 중앙값으로 빈 데이터를 채웁니다.
+
+    <hr>
 
     <b>장점</b>
-    <p>이상치의 영향을 평균보다 적게 받습니다.</p>
+
+    극단적인 값의 영향을 적게 받습니다.
 
     <b>단점</b>
-    <p>실제 연도별 기온 변화를 반영하지 못합니다.</p>
+
+    연도별 변화 추세를 반영하지 못합니다.
     </div>
     """, unsafe_allow_html=True)
 
 with col3:
+
     st.markdown("""
     <div class="info-card">
     <h3>3️⃣ 선형보간법</h3>
-    앞뒤 연도의 기온을 이용하여 중간값을 추정합니다.
+
+    앞뒤 연도의 값으로 중간 기온을 추정합니다.
+
+    <hr>
 
     <b>장점</b>
-    <p>시간의 흐름에 따른 변화를 반영합니다.</p>
+
+    시간에 따른 변화를 반영합니다.
 
     <b>단점</b>
-    <p>급격한 기온 변화는 정확히 반영하지 못할 수 있습니다.</p>
+
+    급격한 변화는 반영하기 어렵습니다.
     </div>
     """, unsafe_allow_html=True)
 
 
-# ==========================================
-# 22. 마무리
-# ==========================================
+# ==================================================
+# 23. 마무리
+# ==================================================
 
 st.markdown("---")
 
 st.info(
-    "💡 결측치 처리 방법과 예측 알고리즘을 변경하면서 "
-    "미래 기온 예측값이 어떻게 달라지는지 비교해 보세요."
+    "💡 결측치 처리 방식과 예측 알고리즘을 바꿔가며 "
+    "미래 평균기온이 어떻게 달라지는지 비교해 보세요."
 )
 
 st.caption(
     "SEOUL CLIMATE LAB | 1907—2025 | "
-    "통계적 추정 결과이며 실제 미래 기온과 다를 수 있습니다."
+    "통계적 예측 결과이며 실제 미래 기온을 보장하지 않습니다."
 )
