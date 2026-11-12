@@ -3,22 +3,22 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-
+from plotly.subplots import make_subplots
 from pathlib import Path
 
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 from sklearn.inspection import permutation_importance
 
 
-# ==========================================
-# 1. 페이지 설정
-# ==========================================
+# =========================================================
+# 1. 페이지 설정 및 디자인
+# =========================================================
 
 st.set_page_config(
     page_title="Iris AI 품종 예측",
@@ -26,72 +26,36 @@ st.set_page_config(
     layout="wide"
 )
 
-
-# ==========================================
-# 2. 디자인
-# ==========================================
-
 st.markdown("""
 <style>
 .stApp {
     background: linear-gradient(135deg, #f8f5ff, #edf5ff);
 }
-
 .main .block-container {
-    max-width: 1300px;
+    max-width: 1400px;
     padding-top: 2rem;
-    padding-bottom: 3rem;
 }
-
 .hero {
     background: linear-gradient(120deg, #7967e8, #e879b9);
-    padding: 35px;
-    border-radius: 25px;
+    padding: 32px;
+    border-radius: 24px;
     color: white;
     text-align: center;
     margin-bottom: 25px;
-    box-shadow: 0 8px 25px rgba(120,90,200,0.2);
 }
-
-.hero h1 {
-    font-size: 38px;
-    font-weight: 900;
+.hero h1, .hero p {
     color: white;
 }
-
-.hero p {
-    color: white;
-    font-size: 16px;
-}
-
 .section-title {
-    font-size: 24px;
+    font-size: 25px;
     font-weight: 800;
-    color: #6654c9;
+    color: #715ed1;
     margin-top: 25px;
-    margin-bottom: 12px;
+    margin-bottom: 15px;
 }
-
-.result {
-    background: white;
-    padding: 25px;
-    border-radius: 20px;
-    text-align: center;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.06);
-    border: 1px solid #e9e4ff;
-}
-
-.algorithm-card {
-    background: white;
-    padding: 20px;
-    border-radius: 18px;
-    border: 1px solid #e9e4ff;
-    margin-bottom: 12px;
-}
-
 div[data-testid="stMetric"] {
     background: white;
-    padding: 16px;
+    padding: 15px;
     border-radius: 15px;
     border: 1px solid #eee8ff;
 }
@@ -99,53 +63,54 @@ div[data-testid="stMetric"] {
 """, unsafe_allow_html=True)
 
 
-# ==========================================
-# 3. 제목
-# ==========================================
-
 st.markdown("""
 <div class="hero">
     <h1>🌸 IRIS AI CLASSIFIER</h1>
-    <p>3가지 인공지능 알고리즘으로 분석하는 붓꽃 품종 예측</p>
-    <p>꽃잎의 길이와 너비를 입력하고 AI의 판단을 확인해 보세요!</p>
+    <p>세 가지 인공지능이 동시에 분석하는 붓꽃 품종 예측</p>
+    <p>측정값을 입력하면 세 알고리즘이 자동으로 예측합니다.</p>
 </div>
 """, unsafe_allow_html=True)
 
 
-# ==========================================
-# 4. 데이터 불러오기
-# ==========================================
+# =========================================================
+# 2. CSV 파일 불러오기
+# =========================================================
 
 @st.cache_data
 def load_data():
 
     current_dir = Path(__file__).resolve().parent
 
-    paths = [
+    possible_paths = [
         current_dir.parent / "Iris.csv",
         current_dir / "Iris.csv"
     ]
 
-    file_path = next(
-        (p for p in paths if p.exists()),
-        None
-    )
+    file_path = None
+
+    for path in possible_paths:
+        if path.exists():
+            file_path = path
+            break
 
     if file_path is None:
         raise FileNotFoundError(
             "Iris.csv 파일을 찾을 수 없습니다. "
-            "프로젝트 최상위 폴더를 확인하세요."
+            "프로젝트 최상위 폴더에 Iris.csv를 넣어주세요."
         )
 
     try:
-        df = pd.read_csv(file_path, encoding="cp949")
+        data = pd.read_csv(file_path, encoding="utf-8-sig")
     except UnicodeDecodeError:
-        df = pd.read_csv(file_path, encoding="utf-8-sig")
+        data = pd.read_csv(file_path, encoding="cp949")
 
-    if len(df.columns) != 5:
-        raise ValueError("CSV 데이터는 총 5개 열이어야 합니다.")
+    if len(data.columns) != 5:
+        raise ValueError(
+            "CSV 파일에는 꽃받침 길이, 꽃받침 너비, "
+            "꽃잎 길이, 꽃잎 너비, 품종의 5개 열이 필요합니다."
+        )
 
-    df.columns = [
+    data.columns = [
         "꽃받침길이",
         "꽃받침너비",
         "꽃잎길이",
@@ -153,47 +118,42 @@ def load_data():
         "품종"
     ]
 
-    numeric_cols = [
+    numeric_columns = [
         "꽃받침길이",
         "꽃받침너비",
         "꽃잎길이",
         "꽃잎너비"
     ]
 
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    for col in numeric_columns:
+        data[col] = pd.to_numeric(data[col], errors="coerce")
 
-    df["품종"] = df["품종"].astype(str).str.strip()
+    data["품종"] = data["품종"].astype(str).str.strip()
 
-    df = df.replace([np.inf, -np.inf], np.nan)
-    df = df.dropna(subset=numeric_cols + ["품종"])
+    data = data.replace([np.inf, -np.inf], np.nan)
+    data = data.dropna(subset=numeric_columns + ["품종"])
 
-    return df.reset_index(drop=True)
+    return data.reset_index(drop=True)
 
 
 try:
     df = load_data()
-
-except Exception as e:
-    st.error(f"데이터 오류: {e}")
+except Exception as error:
+    st.error(f"데이터 불러오기 실패: {error}")
     st.stop()
 
 
-# ==========================================
-# 5. 데이터 준비
-# ==========================================
+# =========================================================
+# 3. 데이터 준비
+# =========================================================
 
-features = ["꽃잎길이", "꽃잎너비"]
+FEATURES = ["꽃잎길이", "꽃잎너비"]
 
-X = df[features]
+X = df[FEATURES]
 y = df["품종"]
 
-if y.nunique() < 2:
-    st.error("2개 이상의 품종 데이터가 필요합니다.")
-    st.stop()
-
-if y.value_counts().min() < 2:
-    st.error("각 품종마다 최소 2개의 데이터가 필요합니다.")
+if y.nunique() < 2 or y.value_counts().min() < 2:
+    st.error("각 품종별 데이터가 최소 2개 이상 필요합니다.")
     st.stop()
 
 X_train, X_test, y_train, y_test = train_test_split(
@@ -205,85 +165,36 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 
-# ==========================================
-# 6. 알고리즘 설정
-# ==========================================
+# =========================================================
+# 4. 세 가지 알고리즘을 자동으로 생성하는 함수
+# =========================================================
 
-algorithm_names = [
-    "🌳 랜덤 포레스트",
-    "📍 KNN",
-    "⚖️ SVM"
-]
+def create_all_models():
 
-algorithm_descriptions = {
-    "🌳 랜덤 포레스트": {
-        "title": "Random Forest (랜덤 포레스트)",
-        "principle": """
-여러 개의 의사결정나무를 만들어 각각 품종을 예측한 뒤
-가장 많은 표를 얻은 품종을 최종 결과로 선택합니다.
-""",
-        "features": [
-            "여러 나무의 결과를 종합하여 예측합니다.",
-            "복잡한 데이터 패턴을 학습할 수 있습니다.",
-            "특성 중요도를 확인할 수 있습니다."
-        ],
-        "example": "300개의 의사결정나무가 투표하여 최종 품종을 결정합니다."
-    },
+    knn_k = min(5, len(X_train))
 
-    "📍 KNN": {
-        "title": "K-Nearest Neighbors (K-최근접 이웃)",
-        "principle": """
-새로운 데이터가 들어오면 기존 데이터 중에서
-가장 가까운 K개의 데이터를 찾습니다.
-그 이웃들이 가장 많이 속한 품종으로 분류합니다.
-""",
-        "features": [
-            "주변 데이터의 영향을 많이 받습니다.",
-            "구조가 단순하고 이해하기 쉽습니다.",
-            "거리 계산이 중요하므로 데이터 표준화가 필요합니다."
-        ],
-        "example": "가장 가까운 5개 붓꽃의 품종을 확인하고 다수결로 결정합니다."
-    },
+    # 중요: 세 알고리즘은 항상 전부 생성됩니다.
+    # 사용자가 선택하는 기능은 존재하지 않습니다.
 
-    "⚖️ SVM": {
-        "title": "Support Vector Machine (서포트 벡터 머신)",
-        "principle": """
-품종이 서로 잘 구분되도록 데이터 사이에 경계선을 만듭니다.
-각 품종을 구분하는 경계를 학습하여 새로운 데이터를 분류합니다.
-""",
-        "features": [
-            "데이터 사이의 분류 경계를 학습합니다.",
-            "커널을 사용하면 복잡한 경계도 표현할 수 있습니다.",
-            "특성의 크기에 영향을 받으므로 표준화가 중요합니다."
-        ],
-        "example": "RBF 커널을 사용해 복잡한 붓꽃 품종의 경계를 학습합니다."
-    }
-}
-
-
-def make_model(name):
-
-    if name == "🌳 랜덤 포레스트":
-        return RandomForestClassifier(
+    all_models = {
+        "랜덤 포레스트": RandomForestClassifier(
             n_estimators=300,
             max_depth=5,
             random_state=42,
             class_weight="balanced"
-        )
+        ),
 
-    elif name == "📍 KNN":
-        return Pipeline([
+        "KNN": Pipeline([
             ("scaler", StandardScaler()),
-            ("knn", KNeighborsClassifier(
-                n_neighbors=5,
+            ("model", KNeighborsClassifier(
+                n_neighbors=knn_k,
                 weights="distance"
             ))
-        ])
+        ]),
 
-    elif name == "⚖️ SVM":
-        return Pipeline([
+        "SVM": Pipeline([
             ("scaler", StandardScaler()),
-            ("svm", SVC(
+            ("model", SVC(
                 kernel="rbf",
                 C=1.0,
                 gamma="scale",
@@ -291,32 +202,71 @@ def make_model(name):
                 random_state=42
             ))
         ])
+    }
+
+    return all_models
 
 
-# ==========================================
-# 7. 알고리즘별 테스트 정확도 비교
-# ==========================================
+# =========================================================
+# 5. 세 알고리즘 동시 학습 및 정확도 측정
+# =========================================================
+
+evaluation_models = create_all_models()
 
 accuracies = {}
 
-for name in algorithm_names:
+for algorithm_name, algorithm_model in evaluation_models.items():
 
-    test_model = make_model(name)
+    algorithm_model.fit(X_train, y_train)
 
-    test_model.fit(X_train, y_train)
+    test_prediction = algorithm_model.predict(X_test)
 
-    predictions = test_model.predict(X_test)
-
-    accuracies[name] = accuracy_score(
+    accuracies[algorithm_name] = accuracy_score(
         y_test,
-        predictions
+        test_prediction
     )
 
 
-# ==========================================
-# 8. 데이터 현황
-# ==========================================
+# =========================================================
+# 6. 알고리즘 설명
+# =========================================================
 
+st.markdown(
+    '<div class="section-title">🧠 사용 알고리즘</div>',
+    unsafe_allow_html=True
+)
+
+info_columns = st.columns(3)
+
+algorithm_descriptions = [
+    (
+        "🌳 랜덤 포레스트",
+        "여러 의사결정나무의 예측을 모아 다수결로 품종을 결정합니다."
+    ),
+    (
+        "📍 KNN",
+        "입력값과 가까운 기존 데이터 5개를 찾아 주변 품종을 기준으로 예측합니다."
+    ),
+    (
+        "⚖️ SVM",
+        "품종을 가장 잘 구분하는 경계선을 학습하여 새로운 데이터를 분류합니다."
+    )
+]
+
+for column, (title, description) in zip(
+    info_columns,
+    algorithm_descriptions
+):
+    with column:
+        st.markdown(f"### {title}")
+        st.write(description)
+
+
+# =========================================================
+# 7. 데이터 현황
+# =========================================================
+
+st.markdown("---")
 st.markdown(
     '<div class="section-title">📊 데이터 분석 현황</div>',
     unsafe_allow_html=True
@@ -325,138 +275,78 @@ st.markdown(
 c1, c2, c3, c4 = st.columns(4)
 
 c1.metric("전체 데이터", f"{len(df)}개")
-c2.metric("품종 개수", f"{y.nunique()}종")
-c3.metric("사용 알고리즘", "3가지")
+c2.metric("붓꽃 품종", f"{y.nunique()}종")
+c3.metric("동시 실행 알고리즘", "3개")
 c4.metric("테스트 데이터", f"{len(X_test)}개")
 
 
-# ==========================================
-# 9. 알고리즘 선택
-# ==========================================
+# =========================================================
+# 8. 알고리즘 정확도 비교
+# =========================================================
 
 st.markdown("---")
-
 st.markdown(
-    '<div class="section-title">🧠 AI 알고리즘 선택</div>',
-    unsafe_allow_html=True
-)
-
-selected_algorithm = st.selectbox(
-    "사용할 분류 알고리즘을 선택하세요.",
-    algorithm_names
-)
-
-description = algorithm_descriptions[selected_algorithm]
-
-st.markdown(
-    f"""
-    <div class="algorithm-card">
-        <h3 style="color:#7967e8;">
-            {description["title"]}
-        </h3>
-        <p>{description["principle"]}</p>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-with st.expander("🔎 이 알고리즘의 특징 자세히 보기"):
-
-    for feature in description["features"]:
-        st.markdown(f"- {feature}")
-
-    st.info(description["example"])
-
-
-# ==========================================
-# 10. 알고리즘 정확도 비교
-# ==========================================
-
-st.markdown(
-    '<div class="section-title">🏆 알고리즘 성능 비교</div>',
+    '<div class="section-title">🏆 알고리즘 정확도 비교</div>',
     unsafe_allow_html=True
 )
 
 accuracy_df = pd.DataFrame({
     "알고리즘": list(accuracies.keys()),
-    "정확도": [
-        value * 100
-        for value in accuracies.values()
+    "테스트 정확도": [
+        accuracies[name] * 100
+        for name in accuracies
     ]
 })
 
 accuracy_fig = go.Figure()
 
-accuracy_fig.add_trace(
-    go.Bar(
-        x=accuracy_df["알고리즘"],
-        y=accuracy_df["정확도"],
-        marker_color=["#8D78EF", "#36A2EB", "#E879B9"],
-        text=[
-            f"{v:.1f}%"
-            for v in accuracy_df["정확도"]
-        ],
-        textposition="outside"
-    )
-)
+accuracy_fig.add_trace(go.Bar(
+    x=accuracy_df["알고리즘"],
+    y=accuracy_df["테스트 정확도"],
+    marker_color=["#8D78EF", "#36A2EB", "#E879B9"],
+    text=[
+        f"{value:.1f}%"
+        for value in accuracy_df["테스트 정확도"]
+    ],
+    textposition="outside"
+))
 
 accuracy_fig.update_layout(
+    title="세 알고리즘의 테스트 정확도",
     template="plotly_white",
     height=370,
-    title="3가지 알고리즘의 테스트 정확도",
     yaxis_title="정확도 (%)",
     yaxis=dict(range=[0, 115]),
     showlegend=False
 )
 
-st.plotly_chart(
-    accuracy_fig,
-    use_container_width=True
-)
+st.plotly_chart(accuracy_fig, use_container_width=True)
 
 st.caption(
-    "동일한 학습/테스트 데이터 분할을 사용한 비교입니다. "
-    "정확도는 데이터 분할에 따라 달라질 수 있습니다."
+    "세 알고리즘 모두 동일한 학습 데이터와 테스트 데이터로 평가합니다."
 )
 
 
-# ==========================================
-# 11. 선택한 알고리즘 최종 학습
-# ==========================================
-
-model = make_model(selected_algorithm)
-
-model.fit(X, y)
-
-classes = model.classes_
-
-
-# ==========================================
-# 12. 사용자 입력
-# ==========================================
+# =========================================================
+# 9. 사용자 입력
+# =========================================================
 
 st.markdown("---")
-
 st.markdown(
-    '<div class="section-title">🎯 꽃잎 정보 입력</div>',
+    '<div class="section-title">🎯 붓꽃 측정값 입력</div>',
     unsafe_allow_html=True
 )
 
-left, right = st.columns(2)
-
 length_min = float(X["꽃잎길이"].min())
 length_max = float(X["꽃잎길이"].max())
-
 width_min = float(X["꽃잎너비"].min())
 width_max = float(X["꽃잎너비"].max())
 
+left, right = st.columns(2)
+
 with left:
-
     st.markdown("### 🌸 꽃잎 길이")
-
-    st.caption(
-        f"입력 가능 범위: {length_min:.2f} ~ {length_max:.2f} cm"
-    )
+    st.caption(f"입력 범위: {length_min:.2f} ~ {length_max:.2f} cm")
 
     petal_length = st.slider(
         "꽃잎 길이 (cm)",
@@ -468,12 +358,8 @@ with left:
     )
 
 with right:
-
     st.markdown("### 🌼 꽃잎 너비")
-
-    st.caption(
-        f"입력 가능 범위: {width_min:.2f} ~ {width_max:.2f} cm"
-    )
+    st.caption(f"입력 범위: {width_min:.2f} ~ {width_max:.2f} cm")
 
     petal_width = st.slider(
         "꽃잎 너비 (cm)",
@@ -484,81 +370,224 @@ with right:
         key="petal_width"
     )
 
-st.info(
-    "입력 범위는 Iris.csv에 실제로 기록된 꽃잎 길이와 너비의 "
-    "최솟값 및 최댓값을 기준으로 설정했습니다."
-)
-
 input_data = pd.DataFrame(
     [[petal_length, petal_width]],
-    columns=features
+    columns=FEATURES
 )
 
 
-# ==========================================
-# 13. 예측
-# ==========================================
+# =========================================================
+# 10. 세 알고리즘 최종 모델 학습
+# =========================================================
 
-prediction = model.predict(input_data)[0]
+# 평가용 모델과 별개로 전체 데이터를 학습한 예측용 모델을 만듭니다.
+# 세 알고리즘 모두 자동으로 학습됩니다.
 
-probabilities = model.predict_proba(input_data)[0]
+prediction_models = create_all_models()
 
-best_prob = float(
-    probabilities[np.where(classes == prediction)[0][0]]
-)
+for algorithm_name, algorithm_model in prediction_models.items():
+    algorithm_model.fit(X, y)
 
 
-# ==========================================
-# 14. 예측 결과
-# ==========================================
+# =========================================================
+# 11. 세 알고리즘 동시 예측
+# =========================================================
+
+prediction_rows = []
+probability_rows = []
+
+for algorithm_name, algorithm_model in prediction_models.items():
+
+    # 모든 알고리즘에서 predict를 실행합니다.
+    predicted_species = algorithm_model.predict(input_data)[0]
+
+    # 모든 알고리즘에서 predict_proba를 실행합니다.
+    probabilities = algorithm_model.predict_proba(input_data)[0]
+
+    model_classes = algorithm_model.classes_
+
+    predicted_index = list(model_classes).index(predicted_species)
+
+    confidence = probabilities[predicted_index] * 100
+
+    prediction_rows.append({
+        "알고리즘": algorithm_name,
+        "예측 품종": predicted_species,
+        "예측 확률": confidence,
+        "테스트 정확도": accuracies[algorithm_name] * 100
+    })
+
+    probability_row = {
+        "알고리즘": algorithm_name
+    }
+
+    for species, probability in zip(model_classes, probabilities):
+        probability_row[species] = probability * 100
+
+    probability_rows.append(probability_row)
+
+
+# 세 알고리즘 결과를 하나의 표로 합칩니다.
+result_table = pd.DataFrame(prediction_rows)
+
+probability_table = pd.DataFrame(probability_rows)
+
+
+# =========================================================
+# 12. 통합 예측 결과표
+# =========================================================
 
 st.markdown("---")
-
 st.markdown(
-    '<div class="section-title">🏆 AI 예측 결과</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    f"""
-    <div class="result">
-        <h2 style="color:#7967e8;">
-            {selected_algorithm}
-        </h2>
-        <h1 style="color:#e879b9;font-size:38px;">
-            🌸 {prediction}
-        </h1>
-        <h3>예측 확률: {best_prob * 100:.1f}%</h3>
-        <p style="color:gray;">
-            선택한 알고리즘으로 입력 데이터를 분석했습니다.
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-
-# ==========================================
-# 15. 분류 영역 그래프
-# ==========================================
-
-st.markdown("---")
-
-st.markdown(
-    '<div class="section-title">🌈 AI 품종 분류 지도</div>',
+    '<div class="section-title">🏆 세 알고리즘 통합 예측 결과</div>',
     unsafe_allow_html=True
 )
 
 st.write(
-    "배경색은 선택한 알고리즘이 예측한 품종 영역입니다. "
-    "무지개색 별은 사용자가 입력한 좌표입니다."
+    f"입력값: 꽃잎 길이 {petal_length:.1f} cm / "
+    f"꽃잎 너비 {petal_width:.1f} cm"
 )
 
-species_colors = {
-    classes[i]: color
-    for i, color in enumerate(
-        ["#FF6384", "#36A2EB", "#42C98A"][:len(classes)]
+# 알고리즘을 선택하는 메뉴 없이 세 결과를 한 표에 출력합니다.
+st.dataframe(
+    result_table.style.format({
+        "예측 확률": "{:.1f}%",
+        "테스트 정확도": "{:.1f}%"
+    }).background_gradient(
+        subset=["예측 확률"],
+        cmap="Purples"
+    ),
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# =========================================================
+# 13. 다수결 결과
+# =========================================================
+
+st.markdown(
+    '<div class="section-title">🗳️ 세 알고리즘의 최종 투표</div>',
+    unsafe_allow_html=True
+)
+
+vote_counts = result_table["예측 품종"].value_counts()
+
+max_votes = vote_counts.max()
+winners = vote_counts[vote_counts == max_votes].index.tolist()
+
+vote_table = pd.DataFrame({
+    "품종": y.unique()
+})
+
+vote_table["투표 수"] = (
+    vote_table["품종"]
+    .map(vote_counts)
+    .fillna(0)
+    .astype(int)
+)
+
+vote_table = vote_table.sort_values(
+    "투표 수",
+    ascending=False
+)
+
+if max_votes >= 2:
+    st.success(
+        f"🌸 다수결 결과: {', '.join(winners)} "
+        f"(3개 중 {max_votes}개 알고리즘이 선택)"
     )
+else:
+    st.warning(
+        "세 알고리즘의 예측 결과가 모두 다릅니다. "
+        "아래 결과표에서 각각의 판단을 확인하세요."
+    )
+
+st.dataframe(
+    vote_table,
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# =========================================================
+# 14. 품종별 예측 확률 비교
+# =========================================================
+
+st.markdown("---")
+st.markdown(
+    '<div class="section-title">📈 품종별 예측 확률 비교</div>',
+    unsafe_allow_html=True
+)
+
+species_list = list(y.unique())
+
+species_colors = {
+    species: color
+    for species, color in zip(
+        species_list,
+        ["#FF6384", "#36A2EB", "#42C98A"]
+    )
+}
+
+probability_fig = go.Figure()
+
+for species in species_list:
+
+    if species not in probability_table.columns:
+        continue
+
+    probability_fig.add_trace(go.Bar(
+        x=probability_table["알고리즘"],
+        y=probability_table[species],
+        name=species,
+        marker_color=species_colors[species],
+        text=[
+            f"{value:.1f}%"
+            for value in probability_table[species]
+        ],
+        textposition="inside"
+    ))
+
+probability_fig.update_layout(
+    barmode="group",
+    template="plotly_white",
+    height=420,
+    title="알고리즘별 품종 예측 확률",
+    yaxis_title="예측 확률 (%)",
+    yaxis=dict(range=[0, 110])
+)
+
+st.plotly_chart(
+    probability_fig,
+    use_container_width=True
+)
+
+st.caption(
+    "예측 확률은 각 모델이 계산한 확률이며 실제 정답을 보장하지 않습니다."
+)
+
+
+# =========================================================
+# 15. 세 알고리즘 분류 영역 비교
+# =========================================================
+
+st.markdown("---")
+st.markdown(
+    '<div class="section-title">🌈 세 알고리즘 분류 영역 비교</div>',
+    unsafe_allow_html=True
+)
+
+st.write(
+    "동일한 꽃잎 측정값을 기준으로 세 알고리즘이 "
+    "각 품종을 어떻게 구분하는지 비교합니다."
+)
+
+class_names = list(prediction_models["랜덤 포레스트"].classes_)
+
+class_to_number = {
+    species: index
+    for index, species in enumerate(class_names)
 }
 
 x_min = length_min - 0.2
@@ -566,80 +595,37 @@ x_max = length_max + 0.2
 y_min = width_min - 0.1
 y_max = width_max + 0.1
 
-xx, yy = np.meshgrid(
-    np.linspace(x_min, x_max, 250),
-    np.linspace(y_min, y_max, 250)
-)
+grid_x = np.linspace(x_min, x_max, 150)
+grid_y = np.linspace(y_min, y_max, 150)
 
-grid = pd.DataFrame({
+xx, yy = np.meshgrid(grid_x, grid_y)
+
+grid_data = pd.DataFrame({
     "꽃잎길이": xx.ravel(),
     "꽃잎너비": yy.ravel()
 })
 
-Z = model.predict(grid)
-
-class_to_num = {
-    name: i
-    for i, name in enumerate(classes)
-}
-
-Z_num = np.array([
-    class_to_num[v] for v in Z
-]).reshape(xx.shape)
-
-fig = go.Figure()
-
 colorscale = []
 
-for i, name in enumerate(classes):
+for index, species in enumerate(class_names):
+    start = index / len(class_names)
+    end = (index + 1) / len(class_names)
 
-    start = i / len(classes)
-    end = (i + 1) / len(classes)
+    colorscale.append([start, species_colors[species]])
+    colorscale.append([end, species_colors[species]])
 
-    colorscale.append([start, species_colors[name]])
-    colorscale.append([end, species_colors[name]])
-
-fig.add_trace(
-    go.Contour(
-        x=np.linspace(x_min, x_max, 250),
-        y=np.linspace(y_min, y_max, 250),
-        z=Z_num,
-        colorscale=colorscale,
-        opacity=0.24,
-        showscale=False,
-        contours=dict(
-            coloring="fill",
-            showlines=True,
-            start=0,
-            end=len(classes)-1,
-            size=1
-        ),
-        hoverinfo="skip",
-        name="품종 분류 영역"
-    )
+fig = make_subplots(
+    rows=1,
+    cols=3,
+    subplot_titles=[
+        "🌳 랜덤 포레스트",
+        "📍 KNN",
+        "⚖️ SVM"
+    ],
+    horizontal_spacing=0.07
 )
 
-# 실제 붓꽃 데이터
-for species in classes:
-
-    subset = df[df["품종"] == species]
-
-    fig.add_trace(
-        go.Scatter(
-            x=subset["꽃잎길이"],
-            y=subset["꽃잎너비"],
-            mode="markers",
-            name=species,
-            marker=dict(
-                size=8,
-                color=species_colors[species],
-                line=dict(color="white", width=1)
-            )
-        )
-    )
-
-# 무지개색 입력 좌표
-rainbow = [
+rainbow_colors = [
     "#FF0000",
     "#FF7F00",
     "#FFFF00",
@@ -649,57 +635,131 @@ rainbow = [
     "#9400D3"
 ]
 
-for i, color in enumerate(rainbow):
+for column_number, (algorithm_name, algorithm_model) in enumerate(
+    prediction_models.items(),
+    start=1
+):
 
+    grid_predictions = algorithm_model.predict(grid_data)
+
+    z = np.array([
+        class_to_number[value]
+        for value in grid_predictions
+    ]).reshape(xx.shape)
+
+    fig.add_trace(
+        go.Contour(
+            x=grid_x,
+            y=grid_y,
+            z=z,
+            colorscale=colorscale,
+            opacity=0.25,
+            showscale=False,
+            contours=dict(
+                coloring="fill",
+                showlines=True,
+                start=0,
+                end=len(class_names) - 1,
+                size=1
+            ),
+            hoverinfo="skip",
+            showlegend=False
+        ),
+        row=1,
+        col=column_number
+    )
+
+    # 실제 데이터 표시
+    for species in class_names:
+
+        species_data = df[df["품종"] == species]
+
+        fig.add_trace(
+            go.Scatter(
+                x=species_data["꽃잎길이"],
+                y=species_data["꽃잎너비"],
+                mode="markers",
+                marker=dict(
+                    size=5,
+                    color=species_colors[species]
+                ),
+                name=species,
+                legendgroup=species,
+                showlegend=(column_number == 1),
+                hovertemplate=(
+                    f"품종: {species}<br>"
+                    "꽃잎 길이: %{x:.2f}<br>"
+                    "꽃잎 너비: %{y:.2f}"
+                    "<extra></extra>"
+                )
+            ),
+            row=1,
+            col=column_number
+        )
+
+    # 사용자 입력 좌표를 무지개색으로 표시
+    for index, color in enumerate(rainbow_colors):
+
+        fig.add_trace(
+            go.Scatter(
+                x=[petal_length],
+                y=[petal_width],
+                mode="markers",
+                marker=dict(
+                    size=30 - index * 3,
+                    color=color,
+                    line=dict(color="white", width=1)
+                ),
+                showlegend=False,
+                hoverinfo="skip"
+            ),
+            row=1,
+            col=column_number
+        )
+
+    # 입력값 중심 별 표시
     fig.add_trace(
         go.Scatter(
             x=[petal_length],
             y=[petal_width],
             mode="markers",
             marker=dict(
-                size=39 - i * 4,
-                color=color,
-                line=dict(color="white", width=1)
+                size=13,
+                symbol="star",
+                color="white",
+                line=dict(color="black", width=2)
             ),
-            showlegend=False,
-            hoverinfo="skip"
-        )
+            name="사용자 입력값",
+            legendgroup="input",
+            showlegend=(column_number == 1),
+            hovertemplate=(
+                "사용자 입력값<br>"
+                "꽃잎 길이: %{x:.2f}<br>"
+                "꽃잎 너비: %{y:.2f}"
+                "<extra></extra>"
+            )
+        ),
+        row=1,
+        col=column_number
     )
 
-fig.add_trace(
-    go.Scatter(
-        x=[petal_length],
-        y=[petal_width],
-        mode="markers+text",
-        text=["YOUR INPUT"],
-        textposition="top center",
-        marker=dict(
-            size=13,
-            symbol="star",
-            color="white",
-            line=dict(color="#222222", width=2)
-        ),
-        name="내 입력값",
-        hovertemplate=(
-            "꽃잎 길이: %{x:.2f} cm<br>"
-            "꽃잎 너비: %{y:.2f} cm"
-            "<extra></extra>"
-        )
-    )
+fig.update_xaxes(
+    title_text="꽃잎 길이 (cm)",
+    range=[x_min, x_max]
+)
+
+fig.update_yaxes(
+    title_text="꽃잎 너비 (cm)",
+    range=[y_min, y_max]
 )
 
 fig.update_layout(
-    height=650,
     template="plotly_white",
-    title=f"{selected_algorithm} 품종 분류 영역",
-    xaxis_title="꽃잎 길이 (cm)",
-    yaxis_title="꽃잎 너비 (cm)",
-    legend_title="붓꽃 품종",
-    hovermode="closest"
+    height=600,
+    title="세 알고리즘의 분류 영역 비교",
+    legend_title="품종",
+    margin=dict(t=90, b=40)
 )
-
-fig.update_xaxes(range=[x_min, x_max])
-fig.update_yaxes(range=[y_min, y_max])
 
 st.plotly_chart(
     fig,
@@ -707,100 +767,67 @@ st.plotly_chart(
 )
 
 
-# ==========================================
-# 16. 품종별 예측 확률
-# ==========================================
+# =========================================================
+# 16. 알고리즘별 특성 중요도
+# =========================================================
 
 st.markdown("---")
-
 st.markdown(
-    '<div class="section-title">📈 품종별 예측 확률</div>',
-    unsafe_allow_html=True
-)
-
-prob_df = pd.DataFrame({
-    "품종": classes,
-    "예측 확률": probabilities * 100
-}).sort_values(
-    "예측 확률",
-    ascending=False
-)
-
-prob_fig = go.Figure(
-    go.Bar(
-        x=prob_df["품종"],
-        y=prob_df["예측 확률"],
-        marker_color=[
-            species_colors[s]
-            for s in prob_df["품종"]
-        ],
-        text=[
-            f"{v:.1f}%"
-            for v in prob_df["예측 확률"]
-        ],
-        textposition="outside"
-    )
-)
-
-prob_fig.update_layout(
-    template="plotly_white",
-    height=350,
-    yaxis_title="예측 확률 (%)",
-    yaxis=dict(range=[0, 115]),
-    showlegend=False
-)
-
-st.plotly_chart(
-    prob_fig,
-    use_container_width=True
-)
-
-
-# ==========================================
-# 17. 알고리즘의 판단 근거
-# ==========================================
-
-st.markdown("---")
-
-st.markdown(
-    '<div class="section-title">🔍 AI 판단 근거 분석</div>',
+    '<div class="section-title">🔍 알고리즘별 판단 근거</div>',
     unsafe_allow_html=True
 )
 
 st.write(
-    "특성 중요도는 각 측정 항목을 섞었을 때 "
-    "모델의 예측 정확도가 얼마나 감소하는지를 이용해 계산합니다."
+    "꽃잎 길이와 너비 중 어떤 항목이 예측에 더 큰 영향을 "
+    "미치는지 비교합니다."
 )
 
-importance = permutation_importance(
-    model,
-    X_test,
-    y_test,
-    n_repeats=10,
-    random_state=42,
-    scoring="accuracy"
-)
+importance_rows = []
 
-importance_fig = go.Figure(
-    go.Bar(
-        x=importance.importances_mean * 100,
-        y=features,
-        orientation="h",
-        marker_color=["#8D78EF", "#E879B9"],
-        text=[
-            f"{v * 100:.2f}%"
-            for v in importance.importances_mean
-        ],
-        textposition="outside"
+for algorithm_name, algorithm_model in evaluation_models.items():
+
+    importance = permutation_importance(
+        algorithm_model,
+        X_test,
+        y_test,
+        n_repeats=10,
+        random_state=42,
+        scoring="accuracy"
     )
-)
+
+    for feature, value in zip(
+        FEATURES,
+        importance.importances_mean
+    ):
+        importance_rows.append({
+            "알고리즘": algorithm_name,
+            "측정 항목": feature,
+            "중요도": value * 100
+        })
+
+importance_df = pd.DataFrame(importance_rows)
+
+importance_fig = go.Figure()
+
+for algorithm_name in prediction_models.keys():
+
+    subset = importance_df[
+        importance_df["알고리즘"] == algorithm_name
+    ]
+
+    importance_fig.add_trace(go.Bar(
+        x=subset["측정 항목"],
+        y=subset["중요도"],
+        name=algorithm_name
+    ))
 
 importance_fig.update_layout(
+    barmode="group",
     template="plotly_white",
-    height=320,
-    title="측정 항목별 특성 중요도",
-    xaxis_title="정확도 감소량 (%)",
-    yaxis_title="측정 항목"
+    height=400,
+    title="알고리즘별 특성 중요도 비교",
+    xaxis_title="측정 항목",
+    yaxis_title="정확도 감소량 (%)"
 )
 
 st.plotly_chart(
@@ -808,19 +835,17 @@ st.plotly_chart(
     use_container_width=True
 )
 
-st.info(
-    "특성 중요도는 해당 모델과 테스트 데이터에서 측정한 "
-    "변수의 상대적 영향도를 나타냅니다. "
-    "값이 낮거나 음수일 수도 있으며, 인과관계를 의미하지는 않습니다."
+st.caption(
+    "특성 중요도는 해당 항목을 섞었을 때 모델의 테스트 성능이 "
+    "얼마나 변하는지 나타냅니다. 음수도 나올 수 있습니다."
 )
 
 
-# ==========================================
-# 18. 가장 가까운 실제 붓꽃
-# ==========================================
+# =========================================================
+# 17. 가장 가까운 실제 데이터 5개
+# =========================================================
 
 st.markdown("---")
-
 st.markdown(
     '<div class="section-title">🔬 가장 비슷한 실제 붓꽃 5개</div>',
     unsafe_allow_html=True
@@ -830,10 +855,7 @@ mean_values = X.mean()
 std_values = X.std().replace(0, 1)
 
 scaled_X = (X - mean_values) / std_values
-
-scaled_input = (
-    input_data - mean_values
-) / std_values
+scaled_input = (input_data - mean_values) / std_values
 
 distances = np.sqrt(
     ((scaled_X - scaled_input.iloc[0]) ** 2).sum(axis=1)
@@ -846,9 +868,7 @@ nearest_df = df.loc[
     ["꽃잎길이", "꽃잎너비", "품종"]
 ].copy()
 
-nearest_df["유사도 거리"] = distances.loc[
-    nearest_indices
-].values
+nearest_df["유사도 거리"] = distances.loc[nearest_indices].values
 
 nearest_df = nearest_df.reset_index(drop=True)
 
@@ -862,22 +882,17 @@ st.dataframe(
     hide_index=True
 )
 
-st.caption(
-    "유사도 거리는 표준화한 두 측정값의 유클리드 거리입니다. "
-    "이 표는 참고용이며 최종 품종은 선택한 알고리즘이 결정합니다."
-)
 
-
-# ==========================================
-# 19. 마무리
-# ==========================================
+# =========================================================
+# 18. 마무리
+# =========================================================
 
 st.markdown("---")
 
 st.markdown("""
 <div class="hero">
     <h2>🌸 IRIS AI LAB</h2>
-    <p>세 가지 알고리즘으로 붓꽃의 품종을 분석해 보세요!</p>
+    <p>한 번의 입력으로 세 가지 알고리즘을 동시에 실행합니다.</p>
     <p>Python · Pandas · Scikit-learn · Streamlit · Plotly</p>
 </div>
 """, unsafe_allow_html=True)
