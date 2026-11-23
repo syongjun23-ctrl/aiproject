@@ -11,7 +11,6 @@ from io import BytesIO
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# 자동 번역 라이브러리
 try:
     from deep_translator import GoogleTranslator
     TRANSLATOR_AVAILABLE = True
@@ -20,7 +19,7 @@ except ImportError:
 
 
 # ==================================================
-# 1. 기본 설정
+# 1. 페이지 설정
 # ==================================================
 
 st.set_page_config(
@@ -32,7 +31,7 @@ st.set_page_config(
 
 
 # ==================================================
-# 2. 디자인 및 글자 색상
+# 2. 디자인
 # ==================================================
 
 st.markdown("""
@@ -95,8 +94,7 @@ h1, h2, h3, h4, h5, h6 {
 .stMultiSelect label,
 .stSlider label,
 .stTextInput label,
-.stRadio label,
-.stNumberInput label {
+.stRadio label {
     color: #FFFFFF !important;
     font-weight: 700 !important;
 }
@@ -231,7 +229,49 @@ small {
 
 
 # ==================================================
-# 3. 한국어 영화 제목
+# 3. 공통 화면 함수
+# ==================================================
+
+def show_footer():
+    """HTML을 문자열로 노출하지 않고 실제 HTML로 렌더링."""
+    st.markdown("""
+    <div style="text-align:center; padding:15px;">
+        <div style="
+            color:#FFFFFF;
+            font-size:20px;
+            font-weight:900;
+        ">
+            🎬 CINE AI
+        </div>
+        <div style="
+            color:#CBD5E1;
+            font-size:13px;
+            margin-top:8px;
+        ">
+            TMDB 5000 Movies Dataset 기반 영화 분석 프로젝트
+        </div>
+        <div style="
+            color:#A5B4FC;
+            font-size:12px;
+            margin-top:6px;
+        ">
+            영화 평점과 인기도는 데이터셋에 수록된 값입니다.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def show_notice(message):
+    """안내 문구 HTML 렌더링."""
+    safe_message = html.escape(str(message))
+    st.markdown(
+        f'<div class="notice">{safe_message}</div>',
+        unsafe_allow_html=True
+    )
+
+
+# ==================================================
+# 4. 한국어 영화 제목
 # ==================================================
 
 KOREAN_TITLE_MAP = {
@@ -295,17 +335,11 @@ KOREAN_TITLE_MAP = {
     "Beauty and the Beast": "미녀와 야수",
     "Aladdin": "알라딘",
     "The Little Mermaid": "인어공주",
-    "Pirates of the Caribbean: The Curse of the Black Pearl": "캐리비안의 해적: 블랙 펄의 저주",
-    "Pirates of the Caribbean: Dead Man's Chest": "캐리비안의 해적: 망자의 함",
-    "Pirates of the Caribbean: At World's End": "캐리비안의 해적: 세상의 끝에서",
     "Spectre": "007 스펙터",
     "Skyfall": "007 스카이폴",
     "Casino Royale": "007 카지노 로얄",
-    "Quantum of Solace": "007 퀀텀 오브 솔러스",
     "The Fast and the Furious": "분노의 질주",
-    "Fast & Furious": "분노의 질주: 더 오리지널",
     "Fast Five": "분노의 질주: 언리미티드",
-    "Fast & Furious 6": "분노의 질주: 더 맥시멈",
     "Furious 7": "분노의 질주: 더 세븐",
     "Mad Max: Fury Road": "매드 맥스: 분노의 도로",
     "Gladiator": "글래디에이터",
@@ -330,7 +364,6 @@ KOREAN_TITLE_MAP = {
     "The Conjuring 2": "컨저링 2",
     "It": "그것",
     "Get Out": "겟 아웃",
-    "The Ring": "링",
     "The Exorcist": "엑소시스트",
     "The Hangover": "행오버",
     "Home Alone": "나 홀로 집에",
@@ -340,17 +373,13 @@ KOREAN_TITLE_MAP = {
     "Gravity": "그래비티",
     "Arrival": "컨택트",
     "Edge of Tomorrow": "엣지 오브 투모로우",
-    "2012": "2012",
     "The Day After Tomorrow": "투모로우",
     "Jurassic Park": "쥬라기 공원",
     "Jurassic World": "쥬라기 월드",
     "King Kong": "킹콩",
     "Godzilla": "고질라",
     "Transformers": "트랜스포머",
-    "Transformers: Revenge of the Fallen": "트랜스포머: 패자의 역습",
-    "Transformers: Dark of the Moon": "트랜스포머 3",
     "The Hunger Games": "헝거게임",
-    "The Hunger Games: Catching Fire": "헝거게임: 캣칭 파이어",
     "Divergent": "다이버전트",
     "Twilight": "트와일라잇",
     "The Fault in Our Stars": "안녕, 헤이즐",
@@ -362,8 +391,6 @@ KOREAN_TITLE_MAP = {
     "Mamma Mia!": "맘마미아!",
     "Les Misérables": "레 미제라블",
     "The Imitation Game": "이미테이션 게임",
-    "The King's Speech": "킹스 스피치",
-    "The Theory of Everything": "사랑에 대한 모든 것",
     "Life of Pi": "라이프 오브 파이",
     "Slumdog Millionaire": "슬럼독 밀리어네어",
     "Black Swan": "블랙 스완",
@@ -398,84 +425,56 @@ def translate_title(title):
     if title in KOREAN_TITLE_MAP:
         return KOREAN_TITLE_MAP[title]
 
-    if not TRANSLATOR_AVAILABLE:
-        return "한국어 번역 준비 중"
+    if TRANSLATOR_AVAILABLE:
+        try:
+            result = GoogleTranslator(
+                source="auto",
+                target="ko"
+            ).translate(title)
 
-    try:
-        translated = GoogleTranslator(
-            source="auto",
-            target="ko"
-        ).translate(title)
+            if result:
+                return result.strip()
 
-        if translated and translated.strip():
-            return translated.strip()
-
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     return "한국어 번역 준비 중"
 
 
 # ==================================================
-# 4. CSV 데이터 불러오기
+# 5. CSV 불러오기
 # ==================================================
 
 @st.cache_data(show_spinner=False)
 def load_data(source):
-    """
-    source가 bytes이면 업로드된 CSV,
-    문자열이면 해당 경로의 CSV를 읽는다.
-    """
-
     if isinstance(source, bytes):
         data = pd.read_csv(BytesIO(source))
     else:
         data = pd.read_csv(source)
 
     required_columns = [
-        "title",
-        "genres",
-        "keywords",
-        "overview",
-        "vote_average",
-        "vote_count",
-        "popularity",
-        "release_date",
-        "budget",
-        "revenue",
-        "runtime"
+        "title", "genres", "keywords", "overview",
+        "vote_average", "vote_count", "popularity",
+        "release_date", "budget", "revenue", "runtime"
     ]
 
-    for column in required_columns:
-        if column not in data.columns:
-            data[column] = np.nan
+    for col in required_columns:
+        if col not in data.columns:
+            data[col] = np.nan
 
     numeric_columns = [
-        "vote_average",
-        "vote_count",
-        "popularity",
-        "budget",
-        "revenue",
-        "runtime"
+        "vote_average", "vote_count", "popularity",
+        "budget", "revenue", "runtime"
     ]
 
-    for column in numeric_columns:
-        data[column] = pd.to_numeric(
-            data[column],
+    for col in numeric_columns:
+        data[col] = pd.to_numeric(
+            data[col],
             errors="coerce"
         )
 
-    data["title"] = (
-        data["title"]
-        .fillna("제목 없음")
-        .astype(str)
-    )
-
-    data["overview"] = (
-        data["overview"]
-        .fillna("")
-        .astype(str)
-    )
+    data["title"] = data["title"].fillna("제목 없음").astype(str)
+    data["overview"] = data["overview"].fillna("").astype(str)
 
     data["release_date"] = pd.to_datetime(
         data["release_date"],
@@ -505,13 +504,8 @@ def load_data(source):
 
         return []
 
-    data["genre_list"] = data["genres"].apply(
-        parse_json_names
-    )
-
-    data["keyword_list"] = data["keywords"].apply(
-        parse_json_names
-    )
+    data["genre_list"] = data["genres"].apply(parse_json_names)
+    data["keyword_list"] = data["keywords"].apply(parse_json_names)
 
     data["genre_names"] = data["genre_list"].apply(
         lambda items: " | ".join(items)
@@ -534,18 +528,10 @@ def load_data(source):
             keep="first"
         )
 
-    # 추천 알고리즘에서 행 번호를 일치시키기 위해 초기화
-    data = data.reset_index(drop=True)
+    return data.reset_index(drop=True)
 
-    return data
-
-
-# --------------------------------------------------
-# CSV 파일 위치 자동 탐색
-# --------------------------------------------------
 
 CSV_NAME = "tmdb_5000_movies.csv"
-
 base_dir = Path(__file__).resolve().parent
 
 search_locations = [
@@ -555,61 +541,37 @@ search_locations = [
     Path.cwd().parent
 ]
 
-# app.py의 상위 폴더도 추가
 for parent in base_dir.parents:
     search_locations.append(parent)
 
-# 중복 경로 제거
-unique_locations = []
-
-for location in search_locations:
-    if location not in unique_locations:
-        unique_locations.append(location)
-
 csv_path = None
 
-for folder in unique_locations:
+for folder in dict.fromkeys(search_locations):
     candidate = folder / CSV_NAME
 
     if candidate.is_file():
         csv_path = candidate
         break
 
-
-# --------------------------------------------------
-# CSV 자동 연결 또는 직접 업로드
-# --------------------------------------------------
-
 df = None
 
 if csv_path is not None:
-
     try:
         df = load_data(str(csv_path))
         st.sidebar.success("CSV 자동 연결 완료")
-
     except Exception as error:
-        st.error(
-            f"CSV 파일을 읽는 중 오류가 발생했습니다: {error}"
-        )
+        st.error(f"CSV 읽기 오류: {error}")
         st.stop()
 
 else:
-
     st.markdown("""
     <div class="hero">
         <div class="hero-title">📁 영화 데이터 연결</div>
         <div class="hero-subtitle">
-            GitHub에서 CSV 파일을 찾지 못했습니다.
-            아래에서 영화 데이터 파일을 업로드해주세요.
+            CSV 파일을 찾지 못했습니다. 아래에서 업로드해주세요.
         </div>
     </div>
     """, unsafe_allow_html=True)
-
-    st.info(
-        "파일 이름은 tmdb_5000_movies.csv를 권장합니다. "
-        "다른 이름이어도 CSV 형식과 데이터 열이 맞으면 사용할 수 있습니다."
-    )
 
     uploaded_file = st.file_uploader(
         "TMDB 영화 데이터 CSV 업로드",
@@ -617,30 +579,26 @@ else:
     )
 
     if uploaded_file is None:
-        st.warning(
-            "CSV 파일을 업로드해야 영화 분석 사이트를 이용할 수 있습니다."
+        st.info(
+            "tmdb_5000_movies.csv 파일을 업로드하면 사이트를 이용할 수 있습니다."
         )
         st.stop()
 
     try:
         df = load_data(uploaded_file.getvalue())
-        st.sidebar.success("업로드한 CSV 연결 완료")
-
+        st.sidebar.success("업로드 CSV 연결 완료")
     except Exception as error:
-        st.error(
-            f"업로드한 CSV를 읽지 못했습니다: {error}"
-        )
+        st.error(f"업로드 CSV 읽기 오류: {error}")
         st.stop()
 
 
 # ==================================================
-# 5. 공통 함수
+# 6. 영화 카드 및 상세 정보
 # ==================================================
 
 def format_money(value):
     if pd.isna(value) or value <= 0:
         return "정보 없음"
-
     return f"${value:,.0f}"
 
 
@@ -648,27 +606,25 @@ def render_movie_card(movie, show_overview=True):
     title = str(movie["title"])
     korean = translate_title(title)
 
-    if pd.notna(movie["year"]):
-        year = str(int(movie["year"]))
-    else:
-        year = "연도 미상"
+    year = (
+        str(int(movie["year"]))
+        if pd.notna(movie["year"])
+        else "연도 미상"
+    )
 
-    if pd.notna(movie["vote_average"]):
-        rating = f'{movie["vote_average"]:.1f}'
-    else:
-        rating = "정보 없음"
+    rating = (
+        f'{movie["vote_average"]:.1f}'
+        if pd.notna(movie["vote_average"])
+        else "정보 없음"
+    )
 
     genres = movie["genre_names"] or "장르 정보 없음"
 
     st.markdown(
         f"""
         <div class="movie-card">
-            <div class="movie-title">
-                {html.escape(title)}
-            </div>
-            <div class="movie-korean">
-                {html.escape(korean)}
-            </div>
+            <div class="movie-title">{html.escape(title)}</div>
+            <div class="movie-korean">{html.escape(korean)}</div>
             <div class="movie-info">
                 📅 개봉 연도: {year}<br>
                 ⭐ 평점: {rating}<br>
@@ -693,31 +649,27 @@ def movie_detail(movie):
     st.markdown(f"# {title}")
 
     st.markdown(
-        f"""
-        <h3 style="color:#FFD166 !important;">
-            {html.escape(korean)}
-        </h3>
-        """,
+        f"<h3 style='color:#FFD166 !important;'>{html.escape(korean)}</h3>",
         unsafe_allow_html=True
     )
 
-    col1, col2, col3 = st.columns(3)
+    c1, c2, c3 = st.columns(3)
 
-    col1.metric(
+    c1.metric(
         "평점",
         f'{movie["vote_average"]:.1f}'
         if pd.notna(movie["vote_average"])
         else "-"
     )
 
-    col2.metric(
+    c2.metric(
         "인기도",
         f'{movie["popularity"]:.1f}'
         if pd.notna(movie["popularity"])
         else "-"
     )
 
-    col3.metric(
+    c3.metric(
         "투표 수",
         f'{movie["vote_count"]:,.0f}'
         if pd.notna(movie["vote_count"])
@@ -725,52 +677,33 @@ def movie_detail(movie):
     )
 
     st.markdown("### 🎭 영화 정보")
-
-    st.write(
-        f"**장르:** {movie['genre_names'] or '정보 없음'}"
-    )
+    st.write(f"**장르:** {movie['genre_names'] or '정보 없음'}")
 
     if pd.notna(movie["release_date"]):
-        st.write(
-            f"**개봉일:** {movie['release_date'].date()}"
-        )
+        st.write(f"**개봉일:** {movie['release_date'].date()}")
     else:
         st.write("**개봉일:** 정보 없음")
 
     if pd.notna(movie["runtime"]):
-        st.write(
-            f"**상영 시간:** {movie['runtime']:.0f}분"
-        )
+        st.write(f"**상영 시간:** {movie['runtime']:.0f}분")
     else:
         st.write("**상영 시간:** 정보 없음")
 
-    st.write(
-        f"**제작비:** {format_money(movie['budget'])}"
-    )
-
-    st.write(
-        f"**수익:** {format_money(movie['revenue'])}"
-    )
+    st.write(f"**제작비:** {format_money(movie['budget'])}")
+    st.write(f"**수익:** {format_money(movie['revenue'])}")
 
     st.markdown("### 📖 줄거리")
-
-    st.write(
-        movie["overview"]
-        if movie["overview"]
-        else "줄거리 정보가 없습니다."
-    )
+    st.write(movie["overview"] or "줄거리 정보가 없습니다.")
 
     if "homepage" in movie.index:
         homepage = movie["homepage"]
 
         if pd.notna(homepage) and str(homepage).strip():
-            st.markdown(
-                f"[🌐 공식 홈페이지 바로가기]({homepage})"
-            )
+            st.markdown(f"[🌐 공식 홈페이지 바로가기]({homepage})")
 
 
 # ==================================================
-# 6. AI 영화 추천 알고리즘
+# 7. AI 추천 알고리즘
 # ==================================================
 
 @st.cache_resource
@@ -783,13 +716,12 @@ def train_recommender(text_data):
 
     matrix = vectorizer.fit_transform(text_data)
 
-    return vectorizer, matrix
+    return matrix
 
 
-def get_recommendations(movie_index, number=30):
+def get_recommendations(movie_index, number=100):
     text_data = tuple(df["search_text"].tolist())
-
-    _, matrix = train_recommender(text_data)
+    matrix = train_recommender(text_data)
 
     similarity = cosine_similarity(
         matrix[movie_index],
@@ -804,12 +736,11 @@ def get_recommendations(movie_index, number=30):
 
 
 # ==================================================
-# 7. 사이드바
+# 8. 사이드바
 # ==================================================
 
 st.sidebar.markdown("# 🎬 CINE AI")
 st.sidebar.caption("AI 영화 분석 및 추천 플랫폼")
-
 st.sidebar.divider()
 
 page = st.sidebar.radio(
@@ -823,20 +754,13 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.divider()
-
 st.sidebar.markdown("### 📁 데이터 정보")
 st.sidebar.write(f"🎞️ 전체 영화: {len(df):,}편")
-
-if "id" in df.columns:
-    st.sidebar.write("📊 데이터: TMDB 5000 Movies")
-
-st.sidebar.caption(
-    "영화 제목은 영어 원문과 한국어 번역을 함께 표시합니다."
-)
+st.sidebar.write("📊 TMDB 5000 Movies Dataset")
 
 
 # ==================================================
-# 8. 메인 대시보드
+# 9. 메인 대시보드
 # ==================================================
 
 if page == "🏠 메인 대시보드":
@@ -845,14 +769,12 @@ if page == "🏠 메인 대시보드":
     <div class="hero">
         <div class="hero-title">🎬 CINE AI</div>
         <div class="hero-subtitle">
-            영화 데이터를 분석하고,
-            나에게 맞는 영화를 발견해 보세요.
+            영화 데이터를 분석하고, 나에게 맞는 영화를 발견해 보세요.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     total_movies = len(df)
-
     avg_rating = df["vote_average"].mean()
 
     total_genres = len({
@@ -865,27 +787,10 @@ if page == "🏠 메인 대시보드":
 
     c1, c2, c3, c4 = st.columns(4)
 
-    c1.metric(
-        "전체 영화",
-        f"{total_movies:,}편"
-    )
-
-    c2.metric(
-        "평균 평점",
-        f"{avg_rating:.2f}점"
-        if pd.notna(avg_rating)
-        else "-"
-    )
-
-    c3.metric(
-        "장르 종류",
-        f"{total_genres}개"
-    )
-
-    c4.metric(
-        "전체 투표 수",
-        f"{total_votes:,.0f}"
-    )
+    c1.metric("전체 영화", f"{total_movies:,}편")
+    c2.metric("평균 평점", f"{avg_rating:.2f}점")
+    c3.metric("장르 종류", f"{total_genres}개")
+    c4.metric("전체 투표 수", f"{total_votes:,.0f}")
 
     st.divider()
 
@@ -903,10 +808,7 @@ if page == "🏠 메인 대시보드":
 
     for i, (_, movie) in enumerate(popular.iterrows()):
         with cols[i % 2]:
-            render_movie_card(
-                movie,
-                show_overview=False
-            )
+            render_movie_card(movie, False)
 
     st.divider()
 
@@ -926,30 +828,22 @@ if page == "🏠 메인 대시보드":
 
     for i, (_, movie) in enumerate(highly_rated.iterrows()):
         with cols[i % 2]:
-            render_movie_card(
-                movie,
-                show_overview=False
-            )
+            render_movie_card(movie, False)
 
 
 # ==================================================
-# 9. AI 영화 추천
+# 10. AI 영화 추천
 # ==================================================
 
 elif page == "🤖 AI 영화 추천":
 
     st.markdown("# 🤖 AI 영화 추천")
 
-    st.markdown("""
-    <div class="notice">
-        영화의 장르, 키워드, 줄거리 정보를 분석해
-        비슷한 영화를 추천합니다.
-    </div>
-    """, unsafe_allow_html=True)
-
-    movie_titles = sorted(
-        df["title"].unique().tolist()
+    show_notice(
+        "영화의 장르, 키워드, 줄거리 정보를 분석해 비슷한 영화를 추천합니다."
     )
+
+    movie_titles = sorted(df["title"].unique().tolist())
 
     selected_title = st.selectbox(
         "좋아하는 영화를 선택하세요.",
@@ -962,22 +856,14 @@ elif page == "🤖 AI 영화 추천":
 
     selected_index = int(selected_movie.name)
 
-    korean_title = translate_title(selected_title)
-
     st.markdown(f"### 🎥 {selected_title}")
 
     st.markdown(
-        f"""
-        <h3 style="color:#FFD166 !important;">
-            {html.escape(korean_title)}
-        </h3>
-        """,
+        f"<h3 style='color:#FFD166 !important;'>{html.escape(translate_title(selected_title))}</h3>",
         unsafe_allow_html=True
     )
 
-    st.write(
-        f"**장르:** {selected_movie['genre_names'] or '정보 없음'}"
-    )
+    st.write(f"**장르:** {selected_movie['genre_names'] or '정보 없음'}")
 
     all_genres = sorted({
         genre
@@ -987,8 +873,7 @@ elif page == "🤖 AI 영화 추천":
 
     selected_genres = st.multiselect(
         "추천받고 싶은 장르를 선택하세요.",
-        all_genres,
-        help="선택하지 않으면 모든 장르에서 추천합니다."
+        all_genres
     )
 
     number = st.slider(
@@ -998,14 +883,9 @@ elif page == "🤖 AI 영화 추천":
         value=6
     )
 
-    if st.button(
-        "✨ AI 영화 추천 시작",
-        use_container_width=True
-    ):
+    if st.button("✨ AI 영화 추천 시작", use_container_width=True):
 
-        with st.spinner(
-            "영화의 장르와 줄거리를 분석하고 있습니다..."
-        ):
+        with st.spinner("영화를 분석하고 있습니다..."):
 
             indices, scores = get_recommendations(
                 selected_index,
@@ -1013,7 +893,6 @@ elif page == "🤖 AI 영화 추천":
             )
 
             recommendations = df.iloc[indices].copy()
-
             recommendations["similarity"] = scores
 
             if selected_genres:
@@ -1029,59 +908,39 @@ elif page == "🤖 AI 영화 추천":
             recommendations = recommendations.head(number)
 
         if recommendations.empty:
-
-            st.warning(
-                "조건에 맞는 영화가 없습니다. "
-                "장르를 변경해 보세요."
-            )
+            st.warning("조건에 맞는 영화가 없습니다. 장르를 변경해 보세요.")
 
         else:
-
-            st.success(
-                f"{len(recommendations)}개의 영화를 찾았습니다!"
-            )
+            st.success(f"{len(recommendations)}개의 영화를 찾았습니다!")
 
             cols = st.columns(2)
 
-            for i, (_, movie) in enumerate(
-                recommendations.iterrows()
-            ):
-
+            for i, (_, movie) in enumerate(recommendations.iterrows()):
                 with cols[i % 2]:
-
                     render_movie_card(movie)
 
-                    similarity_value = float(
-                        movie["similarity"]
-                    )
+                    score = float(movie["similarity"])
 
                     st.progress(
-                        max(
-                            0.0,
-                            min(similarity_value, 1.0)
-                        ),
-                        text=(
-                            f"영화 유사도 "
-                            f"{similarity_value * 100:.1f}%"
-                        )
+                        max(0.0, min(score, 1.0)),
+                        text=f"영화 유사도 {score * 100:.1f}%"
                     )
 
     st.caption(
-        "추천 알고리즘은 TF-IDF와 코사인 유사도를 이용한 "
-        "콘텐츠 기반 추천 방식입니다."
+        "추천 알고리즘: TF-IDF와 코사인 유사도를 이용한 콘텐츠 기반 추천"
     )
 
 
 # ==================================================
-# 10. 데이터 분석
+# 11. 데이터 분석
 # ==================================================
 
 elif page == "📊 데이터 분석":
 
     st.markdown("# 📊 영화 데이터 분석")
 
-    st.markdown(
-        "영화 데이터를 다양한 관점에서 분석해 보세요."
+    show_notice(
+        "TMDB 영화 데이터를 장르, 평점, 개봉 연도, 제작비와 수익 관점에서 분석합니다."
     )
 
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -1091,24 +950,15 @@ elif page == "📊 데이터 분석":
         "💰 수익 분석"
     ])
 
-    # 장르 데이터 펼치기
-    genre_expanded = df.explode(
-        "genre_list"
-    ).copy()
-
-    genre_expanded["genre"] = (
-        genre_expanded["genre_list"]
-    )
+    genre_expanded = df.explode("genre_list").copy()
+    genre_expanded["genre"] = genre_expanded["genre_list"]
 
     genre_expanded = genre_expanded[
         genre_expanded["genre"].notna()
         & (genre_expanded["genre"] != "")
     ]
 
-    # ------------------------------
     # 장르 분석
-    # ------------------------------
-
     with tab1:
 
         st.markdown("### 장르별 영화 수")
@@ -1119,10 +969,7 @@ elif page == "📊 데이터 분석":
             .reset_index()
         )
 
-        genre_counts.columns = [
-            "장르",
-            "영화 수"
-        ]
+        genre_counts.columns = ["장르", "영화 수"]
 
         fig = px.bar(
             genre_counts,
@@ -1136,33 +983,24 @@ elif page == "📊 데이터 분석":
 
         fig.update_layout(
             height=600,
-            yaxis={
-                "categoryorder": "total ascending"
-            },
+            yaxis={"categoryorder": "total ascending"},
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font_color="#FFFFFF"
         )
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
+        st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("### 장르별 평균 평점")
 
         genre_rating = (
-            genre_expanded
-            .groupby("genre")["vote_average"]
+            genre_expanded.groupby("genre")["vote_average"]
             .mean()
             .sort_values(ascending=False)
             .reset_index()
         )
 
-        genre_rating.columns = [
-            "장르",
-            "평균 평점"
-        ]
+        genre_rating.columns = ["장르", "평균 평점"]
 
         fig = px.bar(
             genre_rating,
@@ -1180,28 +1018,15 @@ elif page == "📊 데이터 분석":
             xaxis_tickangle=-35
         )
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(genre_counts, use_container_width=True, hide_index=True)
 
-        st.dataframe(
-            genre_counts,
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # ------------------------------
     # 평점 분석
-    # ------------------------------
-
     with tab2:
 
         st.markdown("### 영화 평점 분포")
 
-        rating_data = df.dropna(
-            subset=["vote_average"]
-        )
+        rating_data = df.dropna(subset=["vote_average"])
 
         fig = px.histogram(
             rating_data,
@@ -1219,18 +1044,12 @@ elif page == "📊 데이터 분석":
             font_color="#FFFFFF"
         )
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
+        st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("### 인기도와 평점의 관계")
 
         scatter_data = df.dropna(
-            subset=[
-                "popularity",
-                "vote_average"
-            ]
+            subset=["popularity", "vote_average"]
         )
 
         fig = px.scatter(
@@ -1251,15 +1070,9 @@ elif page == "📊 데이터 분석":
             font_color="#FFFFFF"
         )
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
+        st.plotly_chart(fig, use_container_width=True)
 
-    # ------------------------------
     # 연도 분석
-    # ------------------------------
-
     with tab3:
 
         st.markdown("### 연도별 영화 개봉 수")
@@ -1274,9 +1087,7 @@ elif page == "📊 데이터 분석":
             .reset_index()
         )
 
-        yearly["year"] = (
-            yearly["year"].astype(int)
-        )
+        yearly["year"] = yearly["year"].astype(int)
 
         fig = px.line(
             yearly,
@@ -1295,10 +1106,7 @@ elif page == "📊 데이터 분석":
             font_color="#FFFFFF"
         )
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
+        st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("### 연도별 평균 평점")
 
@@ -1319,10 +1127,7 @@ elif page == "📊 데이터 분석":
             font_color="#FFFFFF"
         )
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
+        st.plotly_chart(fig, use_container_width=True)
 
         st.dataframe(
             yearly.sort_values("year", ascending=False),
@@ -1330,10 +1135,7 @@ elif page == "📊 데이터 분석":
             hide_index=True
         )
 
-    # ------------------------------
     # 수익 분석
-    # ------------------------------
-
     with tab4:
 
         st.markdown("### 제작비와 수익의 관계")
@@ -1363,10 +1165,7 @@ elif page == "📊 데이터 분석":
                 font_color="#FFFFFF"
             )
 
-            st.plotly_chart(
-                fig,
-                use_container_width=True
-            )
+            st.plotly_chart(fig, use_container_width=True)
 
         else:
             st.info("제작비와 수익 데이터가 없습니다.")
@@ -1375,21 +1174,14 @@ elif page == "📊 데이터 분석":
 
         top_revenue = (
             df[df["revenue"] > 0]
-            .sort_values(
-                "revenue",
-                ascending=False
-            )
+            .sort_values("revenue", ascending=False)
             .head(10)
         )
 
         if not top_revenue.empty:
 
-            revenue_chart = top_revenue[
-                ["title", "revenue"]
-            ].copy()
-
             fig = px.bar(
-                revenue_chart,
+                top_revenue,
                 x="revenue",
                 y="title",
                 orientation="h",
@@ -1399,9 +1191,7 @@ elif page == "📊 데이터 분석":
             )
 
             fig.update_layout(
-                yaxis={
-                    "categoryorder": "total ascending"
-                },
+                yaxis={"categoryorder": "total ascending"},
                 xaxis_title="수익 ($)",
                 yaxis_title="영화",
                 paper_bgcolor="rgba(0,0,0,0)",
@@ -1409,10 +1199,7 @@ elif page == "📊 데이터 분석":
                 font_color="#FFFFFF"
             )
 
-            st.plotly_chart(
-                fig,
-                use_container_width=True
-            )
+            st.plotly_chart(fig, use_container_width=True)
 
             st.dataframe(
                 top_revenue[
@@ -1424,15 +1211,15 @@ elif page == "📊 데이터 분석":
 
 
 # ==================================================
-# 11. 영화 탐색
+# 12. 영화 탐색
 # ==================================================
 
 elif page == "🔎 영화 탐색":
 
     st.markdown("# 🔎 영화 탐색")
 
-    st.markdown(
-        "원하는 영화를 검색하고 평점, 장르, 개봉 연도 등의 정보를 확인하세요."
+    show_notice(
+        "영화 제목을 검색하고 장르와 평점을 설정해 원하는 영화를 찾아보세요."
     )
 
     search = st.text_input(
@@ -1446,17 +1233,15 @@ elif page == "🔎 영화 탐색":
         for genre in genres
     })
 
-    col1, col2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
-    with col1:
-
+    with c1:
         selected_genre = st.selectbox(
             "장르 선택",
             ["전체"] + all_genres
         )
 
-    with col2:
-
+    with c2:
         min_rating = st.slider(
             "최소 평점",
             0.0,
@@ -1467,9 +1252,7 @@ elif page == "🔎 영화 탐색":
 
     filtered = df.copy()
 
-    # 제목 검색
     if search.strip():
-
         filtered = filtered[
             filtered["title"].str.contains(
                 search.strip(),
@@ -1479,19 +1262,15 @@ elif page == "🔎 영화 탐색":
             )
         ]
 
-    # 장르 필터
     if selected_genre != "전체":
-
         filtered = filtered[
             filtered["genre_list"].apply(
                 lambda genres: selected_genre in genres
             )
         ]
 
-    # 평점 필터
     filtered = filtered[
-        filtered["vote_average"].fillna(0)
-        >= min_rating
+        filtered["vote_average"].fillna(0) >= min_rating
     ]
 
     sort_option = st.selectbox(
@@ -1504,37 +1283,19 @@ elif page == "🔎 영화 탐색":
         ]
     )
 
-    if sort_option == "인기도 높은 순":
+    sort_columns = {
+        "인기도 높은 순": "popularity",
+        "평점 높은 순": "vote_average",
+        "개봉 연도 최신 순": "year",
+        "투표 수 많은 순": "vote_count"
+    }
 
-        filtered = filtered.sort_values(
-            "popularity",
-            ascending=False
-        )
-
-    elif sort_option == "평점 높은 순":
-
-        filtered = filtered.sort_values(
-            "vote_average",
-            ascending=False
-        )
-
-    elif sort_option == "개봉 연도 최신 순":
-
-        filtered = filtered.sort_values(
-            "year",
-            ascending=False
-        )
-
-    else:
-
-        filtered = filtered.sort_values(
-            "vote_count",
-            ascending=False
-        )
-
-    st.markdown(
-        f"### 검색 결과: {len(filtered):,}편"
+    filtered = filtered.sort_values(
+        sort_columns[sort_option],
+        ascending=False
     )
+
+    st.markdown(f"### 검색 결과: {len(filtered):,}편")
 
     if filtered.empty:
 
@@ -1542,11 +1303,9 @@ elif page == "🔎 영화 탐색":
 
     else:
 
-        movie_options = filtered["title"].tolist()
-
         selected_movie_title = st.selectbox(
             "상세 정보를 확인할 영화 선택",
-            movie_options
+            filtered["title"].tolist()
         )
 
         selected_movie = filtered[
@@ -1554,65 +1313,30 @@ elif page == "🔎 영화 탐색":
         ].iloc[0]
 
         st.divider()
-
         movie_detail(selected_movie)
 
         st.divider()
-
         st.markdown("### 🎞️ 검색 결과 목록")
 
         display_count = st.slider(
             "표시할 영화 수",
-            min_value=5,
-            max_value=30,
-            value=10
+            5,
+            30,
+            10
         )
 
-        display_movies = filtered.head(
-            display_count
-        )
+        display_movies = filtered.head(display_count)
 
         cols = st.columns(2)
 
-        for i, (_, movie) in enumerate(
-            display_movies.iterrows()
-        ):
-
+        for i, (_, movie) in enumerate(display_movies.iterrows()):
             with cols[i % 2]:
-
                 render_movie_card(movie)
 
 
 # ==================================================
-# 12. 하단 정보
+# 13. 모든 메뉴에서 공통 하단 문구
 # ==================================================
 
 st.divider()
-
-st.markdown("""
-<div style="text-align:center; padding:15px;">
-    <div style="
-        color:#FFFFFF;
-        font-size:20px;
-        font-weight:900;
-    ">
-        🎬 CINE AI
-    </div>
-
-    <div style="
-        color:#CBD5E1;
-        font-size:13px;
-        margin-top:8px;
-    ">
-        TMDB 5000 Movies Dataset 기반 영화 분석 프로젝트
-    </div>
-
-    <div style="
-        color:#A5B4FC;
-        font-size:12px;
-        margin-top:6px;
-    ">
-        영화 평점과 인기도는 데이터셋에 수록된 값입니다.
-    </div>
-</div>
-""", unsafe_allow_html=True)
+show_footer()
